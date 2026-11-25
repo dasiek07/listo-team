@@ -1,0 +1,10 @@
+dist/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/icons/
+*.log
+*.bak
+# pliki tylko dla wersji w claude.ai / skrótów na tym komputerze
+artifact.html
+install.ps1
+.claude/

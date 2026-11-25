@@ -1,0 +1,77 @@
+# Po każdym wysłaniu zmian na GitHub:
+#  1) publikuje aplikację www (GitHub Pages) – do instalacji na telefonie i komputerze,
+#  2) buduje instalator Windows (.exe i .msi) i dodaje go do „Releases”.
+name: Zbuduj Listo Team
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: listo-team-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Strona www (GitHub Pages)
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Złóż pliki
+        shell: pwsh
+        run: ./scripts/build-dist.ps1
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  windows:
+    name: Instalator Windows
+    # budowany tylko na żądanie (Actions → Run workflow) – aplikacja Windows i tak wczytuje zawsze aktualną stronę
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Złóż pliki
+        shell: pwsh
+        run: ./scripts/build-dist.ps1
+      - name: Ikony aplikacji
+        run: npx --yes @tauri-apps/cli@2 icon icon-512.png
+      - name: Zbuduj instalator
+        run: npx --yes @tauri-apps/cli@2 build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ListoTeam-Windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+      - name: Opublikuj w Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: listo-team-${{ github.run_number }}
+          name: Listo Team – wersja ${{ github.run_number }}
+          body: |
+            Pobierz **Listo_…_x64-setup.exe**, uruchom i gotowe. Aplikacja sama pojawi się w menu Start.
+            Od wersji 1.1.0 aplikacja aktualizuje się sama – wystarczy zainstalować ją raz.
+            Jeśli Windows pokaże „System Windows ochronił komputer”, kliknij „Więcej informacji” → „Uruchom mimo to”.
+          files: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1e1e1e">
+  <meta name="description" content="Listo Team – zadania i kalendarz zespołu z synchronizacją na żywo">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Listo Team">
+  <title>Listo Team</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="icon.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar"></aside>
+    <div class="sb-backdrop" data-act="toggle-sidebar"></div>
+    <main id="main"></main>
+  </div>
+  <div id="modal-root"></div>
+  <div id="dialog-root"></div>
+  <div id="popover" hidden></div>
+  <div id="toast-root"></div>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
