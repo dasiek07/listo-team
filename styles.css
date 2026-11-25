@@ -2509,3 +2509,4 @@ button.hm-ev { width: 100%; text-align: left; }
   .team-col { width: 84vw; }
   .who-chip span { max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
+.team-col .meta-proj { display: none; }
