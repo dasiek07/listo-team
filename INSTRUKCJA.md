@@ -3,7 +3,8 @@
 Aplikacja do rozdzielania zadań i wydarzeń między osoby w firmie. Działa na telefonach (Android, iPhone) i komputerach,
 a każda zmiana synchronizuje się na żywo na wszystkich urządzeniach całego zespołu.
 
-**Adres:** https://dasiek07.github.io/listo-team/
+**Adres:** https://dasiek07.github.io/listo-team/  
+**Wersja demo (przykładowa firma, bez logowania):** https://dasiek07.github.io/listo-team/#demo
 
 ## Najważniejsze funkcje
 

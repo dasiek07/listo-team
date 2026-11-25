@@ -6,6 +6,7 @@
 const KEY = 'listo-data-v2';
 var seeded = false; // true, gdy na tym urządzeniu nie było jeszcze danych (świeży start)
 var CUR_UID = null;  // identyfikator zalogowanej osoby (ustawiany po zalogowaniu)
+var DEMO = (() => { try { return location.hash === "#demo" || sessionStorage.getItem("lt-demo") === "1"; } catch (e) { return false; } })();  // tryb demo – przykładowe dane, bez zapisu
 const PL_DAYS = ['niedziela', 'poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota'];
 const PL_DAYS_SHORT = ['Nd', 'Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'Sb'];
 const PL_MON = ['Styczeń', 'Luty', 'Marzec', 'Kwiecień', 'Maj', 'Czerwiec', 'Lipiec', 'Sierpień', 'Wrzesień', 'Październik', 'Listopad', 'Grudzień'];
@@ -20,8 +21,8 @@ const COLORS = [
 ];
 // ustawienia – obecny wygląd i zachowanie to wartości domyślne
 const PREF_DEFAULTS = {
-  startView: 'home', density: 'normal', scale: 100, anim: 'full', splash: true, confetti: true, navColors: true, showDesc: true,
-  pomo: [25, 5, 15], hiddenNav: [], hiddenCards: [], voiceAuto: false, hoverFx: true,
+  startView: 'home', density: 'normal', scale: 100, anim: 'full', splash: false, confetti: false, navColors: true, showDesc: true,
+  hiddenNav: [], hiddenCards: [], voiceAuto: false, hoverFx: false,
   navOrder: [], cardOrder: [], tileEdit: false, navCounts: true, gcalCal: true, gcalUp: true, gcalToday: true, calWeekNums: false, calHidden: [], who: 'all', calStartHour: 7,
 };
 const PREF_FALSE = ['voiceAuto', 'tileEdit', 'calWeekNums'];   // przełączniki domyślnie wyłączone
@@ -185,7 +186,7 @@ function seed() {
   const inbox = { id: 'inbox', name: 'Skrzynka', color: '#808080', isInbox: true, view: 'list', order: 0, sections: [] };
   return {
     projects: [inbox], labels: [], tasks: [], history: [], filters: [],
-    settings: { theme: 'dark', dailyGoal: 5, userName: '', completedGroup: 'project' },
+    settings: { theme: 'light', dailyGoal: 5, userName: '', completedGroup: 'project' },
   };
 }
 
@@ -197,7 +198,7 @@ function load() {
   return normalizeState(seed());
 }
 function normalizeState(d) {
-  d.settings = Object.assign({ theme: 'dark', dailyGoal: 5, userName: '', completedGroup: 'project', sound: true }, d.settings || {});
+  d.settings = Object.assign({ theme: 'light', dailyGoal: 5, userName: '', completedGroup: 'project', sound: true }, d.settings || {});
   d.filters = d.filters || []; d.labels = d.labels || []; d.history = d.history || [];
   d.projects = d.projects || []; d.tasks = d.tasks || [];
   if (!d.projects.some(p => p.id === 'inbox')) d.projects.unshift({ id: 'inbox', name: 'Skrzynka', color: '#808080', isInbox: true, view: 'list', order: 0, sections: [] });
@@ -207,7 +208,7 @@ function normalizeState(d) {
   return d;
 }
 let saveTimer;
-function persist() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* brak miejsca / tryb prywatny */ } }
+function persist() { if (DEMO) return; try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* brak miejsca / tryb prywatny */ } }
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 120); scheduleRemote(); }
 addEventListener('beforeunload', persist);
 const snapshot = () => JSON.stringify(state);
@@ -216,7 +217,8 @@ const snapshot = () => JSON.stringify(state);
 const proj = id => state.projects.find(p => p.id === id);
 const label = id => state.labels.find(l => l.id === id);
 const task = id => state.tasks.find(t => t.id === id);
-const active = () => state.tasks.filter(t => !t.completed && whoOk(t));
+const pastEvent = t => t.kind === 'event' && !!t.due && (t.endDue || t.due) < todayStr();
+const active = () => state.tasks.filter(t => !t.completed && !pastEvent(t) && whoOk(t));
 const sectionOf = t => { const p = proj(t.projectId); return p && t.sectionId ? p.sections.find(s => s.id === t.sectionId) : null; };
 const kids = (id, all) => state.tasks.filter(t => t.parentId === id && (all || !t.completed)).sort(byOrder);
 const userProjects = () => state.projects.filter(p => !p.isInbox).sort(byOrder);
@@ -548,20 +550,20 @@ function renderSidebar() {
       <button class="user" data-act="user-menu" title="Konto i ustawienia"><span class="avatar">${esc(name[0].toUpperCase())}</span><span>${esc(name)}</span>${I.chevronDown}</button>
       <div class="sb-tools">
         <span class="sync-badge" data-s="${sync.status}" title="${SYNC_LABEL[sync.status]}" ${sync.status === 'local' ? 'hidden' : ''}>${I.cloud}</span>
+        <button class="icon-btn" data-act="nav" data-view="search" title="Szukaj (/)">${sz(I.search, 20)}</button>
         <button class="icon-btn" data-act="notifications" title="Powiadomienia">${I.bell}</button>
         <button class="icon-btn" data-act="toggle-sidebar" title="Zwiń menu (M)">${I.sidebar}</button>
       </div>
     </div>
     <button class="nav-item add-btn" data-act="quick-add" title="Szybkie dodawanie (Q)"><span class="add-circle">${I.plus}</span><span>Dodaj zadanie</span></button>
     ${navOrder().map(k => { const d = NAV_DEF[k]; if (!d) return ''; const h = nav(k, d.icon(), d.label, d.count ? d.count(act, cnt) : '', k === 'today' && overdue); return k === 'inbox' ? `<div data-drop="project" data-pid="inbox">${h}</div>` : h; }).join('')}
-    <div class="sb-group"><div class="sb-head"><span class="sb-title">Ulubione</span></div>${favs.map(projItem).join('')}</div>
     <div class="sb-group">
       <div class="sb-head">
-        <button class="sb-title" data-act="collapse" data-key="projects">Moje projekty</button>
+        <button class="sb-title" data-act="collapse" data-key="projects">Projekty</button>
         <button class="icon-btn" data-act="add-project" title="Dodaj projekt">${I.plus}</button>
         <button class="icon-btn caret ${ui.collapsed.projects ? 'closed' : ''}" data-act="collapse" data-key="projects" title="Zwiń">${I.chevron}</button>
       </div>
-      ${ui.collapsed.projects ? '' : userProjects().map(projItem).join('')}
+      ${ui.collapsed.projects ? '' : [...favs, ...userProjects().filter(p => !p.favorite)].map(projItem).join('')}
     </div>
     <div class="sb-foot">
       ${nav('prefs', I.gear, 'Ustawienia')}
@@ -578,7 +580,7 @@ function cbox(key, inner) {
 }
 function header(title, o = {}) {
   ui.bar = { title: o.barTitle || title, icon: o.icon || '', crumb: o.crumb || '', right: o.barRight || '' };
-  return `<header class="view-header"><div><h1>${o.icon ? `<span class="h1-icon ${o.iconCls || ''}">${o.icon}</span>` : ''}<span>${title}</span></h1>${o.sub ? `<div class="vh-sub">${o.sub}</div>` : ''}</div><div class="vh-right">${o.right || ''}</div></header>`;
+  return `<header class="view-header"><div><h1>${o.icon ? `<span class="h1-icon ${o.iconCls || ''}">${o.icon}</span>` : ''}<span>${title}</span></h1>${o.sub ? `<div class="vh-sub">${o.sub}</div>` : ''}</div><div class="vh-right">${o.right || ''}</div></header>${o.after || ''}`;
 }
 
 function renderMain() {
@@ -857,33 +859,6 @@ function submitSection() {
 // ---------- Dziś ----------
 function emptyState(title, text) {
   return `<div class="empty">${I.party}<h3>${title}</h3><div>${text}</div></div>`;
-}
-function renderToday() {
-  const td = todayStr(), act = active();
-  const overdue = act.filter(t => t.due && t.due < td).sort(byDue);
-  const today = act.filter(t => t.due === td).sort(byDue);
-  const n = overdue.length + today.length;
-  const d = new Date();
-  const doneToday = state.history.filter(h => fmtDate(new Date(h.at)) === td).length;
-  const goal = state.settings.dailyGoal || 5, pct = Math.min(100, Math.round(doneToday / goal * 100));
-  const C = 2 * Math.PI * 8;
-  const ring = `<button class="icon-btn prog-btn" data-act="productivity" title="Dzisiaj ukończono ${doneToday} z ${goal}"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8" fill="none" stroke="var(--line-2)" stroke-width="2.4"/><circle class="prog-arc" cx="10" cy="10" r="8" fill="none" stroke="var(--accent-text)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="${(C * pct / 100).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 10 10)"/></svg></button>`;
-  let html = header('Dziś', {
-    icon: todayIcon(), iconCls: 'soft-red',
-    sub: (n ? `${sz(I.done, 14)} ${n} ${plural(n, 'zadanie', 'zadania', 'zadań')}` : '') +
-      `<span class="day-progress" data-act="productivity" title="Dzienny cel – kliknij, by zobaczyć statystyki"><span class="dp-bar"><i style="--w:${pct}%"></i></span>${doneToday}/${goal} dziś${pct >= 100 ? ' 🎉' : ''}</span>`,
-    barRight: ring,
-  });
-  if (overdue.length) {
-    html += `<div class="group"><div class="group-head"><button class="caret ${ui.collapsed.overdue ? 'closed' : ''}" data-act="collapse" data-key="overdue">${I.chevron}</button><h3>Zaległe</h3><button class="btn ghost accent" data-act="reschedule-overdue" title="Przełóż wszystkie zaległe na dziś">Zmień termin</button></div>
-      ${cbox('overdue', overdue.map(t => taskRow(t, { showProject: true })).join(''))}</div>`;
-  }
-  const wd = PL_DAYS[d.getDay()];
-  html += `<div class="group" data-drop="day" data-date="${td}"><div class="group-head"><h3>${d.getDate()} ${PL_MON_SHORT[d.getMonth()]} · Dziś · ${wd[0].toUpperCase() + wd.slice(1)}</h3></div>
-    ${today.map(t => taskRow(t, { showProject: true, hideToday: true })).join('')}
-    ${addTaskButton('today', { due: td })}</div>`;
-  if (!n && !(ui.addForm && ui.addForm.ctx === 'today')) html += emptyState('Wszystko na dziś zrobione!', 'Ciesz się wolnym czasem albo zaplanuj coś na jutro.');
-  return html;
 }
 
 // ---------- Nadchodzące ----------
@@ -1703,56 +1678,6 @@ function importData() {
 //  Synchronizacja między urządzeniami (gdy aplikacja działa na claude.ai)
 // ================================================================
 
-function userMenu(anchor) {
-  const th = state.settings.theme;
-  menu(anchor, [
-    { icon: sz(I.gear, 16), label: 'Ustawienia', fn: () => setView({ type: 'prefs' }) },
-    { icon: sz(I.book, 16), label: 'Poradnik i skróty', fn: () => setView({ type: 'guide' }) },
-    { icon: sz(I.pulse, 16), label: 'Raportowanie i produktywność', fn: () => setView({ type: 'reports' }) },
-    { icon: I.edit, label: 'Zmień nazwę użytkownika', fn: () => openDialog({ title: 'Nazwa użytkownika', submit: 'Zapisz', fields: [{ key: 'name', label: 'Nazwa', value: state.settings.userName || '', required: true }], onSubmit: v => { state.settings.userName = v.name; commit(); } }) },
-    '-',
-    { icon: `<span class="tp-mini" style="--c:${(ACCENTS.find(a => a.id === state.settings.accent) || ACCENTS[0]).color}"></span>`, label: 'Motyw kolorystyczny…', fn: () => themePicker(anchor) },
-    { icon: th === 'dark' ? I.checkSmall : '<span style="width:16px"></span>', label: 'Motyw: ciemny', fn: () => { state.settings.theme = 'dark'; commit(); } },
-    { icon: th === 'light' ? I.checkSmall : '<span style="width:16px"></span>', label: 'Motyw: jasny', fn: () => { state.settings.theme = 'light'; commit(); } },
-    { icon: th === 'auto' ? I.checkSmall : '<span style="width:16px"></span>', label: 'Motyw: jak w systemie', fn: () => { state.settings.theme = 'auto'; commit(); } },
-    '-',
-    { icon: state.settings.sound !== false ? I.checkSmall : '<span style="width:16px"></span>', label: 'Dźwięk przy odhaczaniu', fn: () => { state.settings.sound = state.settings.sound === false; commit(); if (state.settings.sound) playSound('done'); } },
-    { icon: sz(I.keyboard, 16), label: 'Skróty klawiszowe', fn: shortcutsDialog },
-    '-',
-    { icon: sz(I.copy, 16), label: 'Eksportuj dane (kopia do schowka)', fn: exportData },
-    { icon: sz(I.move, 16), label: 'Importuj dane…', fn: importData },
-    { icon: sz(I.cloud, 16), label: SYNC_LABEL[sync.status], fn: () => {} },
-  ]);
-}
-function productivity(anchor) {
-  openPopover(anchor, (pop) => {
-    const draw = () => {
-      const td = todayStr(), goal = state.settings.dailyGoal;
-      const days = [...Array(7)].map((_, i) => addDays(td, i - 6));
-      const byDay = {};
-      state.history.forEach(h => { const d = fmtDate(new Date(h.at)); byDay[d] = (byDay[d] || 0) + 1; });
-      const counts = days.map(d => byDay[d] || 0);
-      const todayC = counts[6], pct = Math.min(1, todayC / goal);
-      let streak = 0;
-      for (let d = (byDay[td] || 0) >= goal ? td : addDays(td, -1); (byDay[d] || 0) >= goal; d = addDays(d, -1)) streak++;
-      const max = Math.max(goal, ...counts, 1);
-      const C = 2 * Math.PI * 26;
-      pop.innerHTML = `<div class="prod">
-        <h3>Twoja produktywność</h3>
-        <div class="prod-ring">
-          <svg width="64" height="64" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="26" fill="none" stroke="var(--line-2)" stroke-width="7"/>
-            <circle cx="32" cy="32" r="26" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round" stroke-dasharray="${C * pct} ${C}" transform="rotate(-90 32 32)"/></svg>
-          <div><div class="big">${todayC}/${goal}</div><div class="muted small">ukończonych dziś</div><div class="small" style="margin-top:4px">🔥 Seria: <b>${streak}</b> ${plural(streak, 'dzień', 'dni', 'dni')}</div></div>
-        </div>
-        <div class="bars"><div class="goal-line" style="bottom:${goal / max * 100}%"></div>${counts.map(c => `<div class="bar-col"><span class="bar-v">${c || ''}</span><div class="bar ${c < goal ? 'low' : ''}" style="height:${c / max * 78}%"></div></div>`).join('')}</div>
-        <div class="bar-l">${days.map(d => `<span>${PL_DAYS_SHORT[dow(d)]}</span>`).join('')}</div>
-        <div class="prod-goal"><span>Dzienny cel</span><input type="number" min="1" max="50" value="${goal}" aria-label="Dzienny cel"></div>
-      </div>`;
-      $('input', pop).onchange = e => { state.settings.dailyGoal = Math.max(1, Math.min(50, +e.target.value || 5)); commit(); draw(); };
-    };
-    draw();
-  });
-}
 
 // ================================================================
 //  Okna dialogowe
@@ -2471,7 +2396,6 @@ function applyPrefs() {
   root.classList.toggle('no-hover-fx', s.hoverFx === false);
   const z = (+s.scale || 100) / 100;
   root.style.zoom = z === 1 ? '' : String(z);
-  const p = s.pomo || PREF_DEFAULTS.pomo;
 }
 function setPref(k, v, el) {
   if (k === 'theme' || k === 'accent') { document.documentElement.classList.add('theme-fade'); setTimeout(() => document.documentElement.classList.remove('theme-fade'), 600); }
@@ -2570,13 +2494,12 @@ function reportsExtra() {
 
 // ---------- Poradnik ----------
 const GUIDE_VIEWS = [
-  ['home', I.home, 'Start', 'Widok główny: najważniejsze zadanie „Na teraz”, plan dnia, nawyki, terminy i statystyki w jednym miejscu.', 'G H'],
+  ['home', I.home, 'Start', 'Twój dzień w skrócie: moje zadania na dziś, plan spotkań, najbliższe terminy, zespół i nieprzypisane zadania.', 'G H'],
   ['inbox', I.inbox, 'Skrzynka', 'Miejsce na wszystko, co jeszcze nie ma projektu. Wrzucaj tu pomysły i porządkuj później.', 'G I'],
   ['today', todayIcon(), 'Dziś', 'Zadania na dziś i zaległe. Przycisk „Zmień termin” przenosi zaległe na dziś.', 'G T'],
   ['upcoming', I.upcoming, 'Nadchodzące', 'Plan na kolejne tygodnie – przeciągaj zadania między dniami.', 'G U'],
-  ['calendar', I.calMonth, 'Kalendarz', 'Widok miesiąca. Kliknij dzień, by zobaczyć zadania; przeciągnij zadanie, by zmienić termin.', 'G K'],
-  ['filters', I.filters, 'Filtry i etykiety', 'Własne widoki oparte na zapytaniach, np. „p1 & today”, oraz etykiety @.', 'G F'],
-  ['reports', I.pulse, 'Raportowanie', 'Dzienny cel, serie, mapa aktywności i godziny, w których najczęściej kończysz zadania.', 'G R'],
+  ['calendar', I.calMonth, 'Kalendarz', 'Miesiąc, tydzień, dzień, zespół (kolumna na osobę) i lista. Przeciągaj po godzinach, by dodać wydarzenie; filtruj osoby jednym kliknięciem.', 'G K'],
+  ['reports', I.pulse, 'Raporty', 'Statystyki zespołu: otwarte, w trakcie, po terminie, ukończone na czas – na osobę i na projekt.', 'G R'],
   ['completed', I.done, 'Ukończone', 'Historia ukończonych zadań – możesz je przywrócić jednym kliknięciem.', 'G C'],
   ['mine', I.person, 'Moje zadania', 'Wszystko, co jest przypisane do Ciebie – podzielone na: w trakcie, do zrobienia i z terminem.', 'G M'],
   ['team', I.team, 'Zespół', 'Tablica osób: kto ma ile zadań, co jest w trakcie, co po terminie. Przeciągnij zadanie na osobę, by je przypisać.', 'G Z'],
@@ -2923,8 +2846,7 @@ document.addEventListener('click', e => {
     case 'pref-tg': { const v = !(PREF_FALSE.includes(k) ? !!s[k] : s[k] !== false); if (PREF_REDRAW.includes(k)) { state.settings[k] = v; ui.quiet = true; commit(); if (k === 'karma' && v) karmaDaily(); } else setPref(k, v, el); break; }
     case 'pref-step': {
       const d = +el.dataset.d;
-      if (k === 'pomo') { const i = +el.dataset.i, arr = [...s.pomo]; arr[i] = Math.max(1, Math.min(120, arr[i] + d)); setPref('pomo', arr, el); }
-      else setPref(k, Math.max(1, Math.min(50, (s[k] || 5) + d)), el);
+      setPref(k, Math.max(1, Math.min(50, (s[k] || 5) + d)), el);
       break;
     }
     case 'pref-nav': { const v = el.dataset.v, h = new Set(s.hiddenNav || []); h.has(v) ? h.delete(v) : h.add(v); setPref('hiddenNav', [...h], el); break; }
@@ -2954,7 +2876,7 @@ document.addEventListener('pointermove', e => {
     c.style.setProperty('--my', (e.clientY - r.top) + 'px');
   });
 }, { passive: true });
-showSplash();
+
 // ================================================================
 //  Konta i synchronizacja przez własny serwer (Supabase) + instalowalna aplikacja (PWA)
 // ================================================================
@@ -2984,17 +2906,15 @@ Object.assign(I, {
 
 // ---------- menu boczne: definicje, kolejność, widoczność ----------
 const NAV_DEF = {
-  search: { label: 'Szukaj', icon: () => I.search },
   home: { label: 'Start', icon: () => I.home },
-  inbox: { label: 'Skrzynka', icon: () => I.inbox, count: (a, c) => c.inbox },
-  today: { label: 'Dziś', icon: () => todayIcon(), count: (a, c) => c.today },
   mine: { label: 'Moje zadania', icon: () => I.person, count: () => myOpen().length || '' },
-  team: { label: 'Zespół', icon: () => I.team },
+  today: { label: 'Dziś', icon: () => todayIcon(), count: (a, c) => c.today },
   upcoming: { label: 'Nadchodzące', icon: () => I.upcoming },
   calendar: { label: 'Kalendarz', icon: () => I.calMonth },
-  filters: { label: 'Filtry i etykiety', icon: () => I.filters },
-  reports: { label: 'Raportowanie', icon: () => I.pulse },
-  completed: { label: 'Ukończone', icon: () => I.done, count: () => state.tasks.filter(t => t.completed).length },
+  team: { label: 'Zespół', icon: () => I.team },
+  inbox: { label: 'Skrzynka', icon: () => I.inbox, count: (a, c) => c.inbox },
+  reports: { label: 'Raporty', icon: () => I.pulse },
+  completed: { label: 'Ukończone', icon: () => I.done },
 };
 function navOrder() {
   const o = (state.settings.navOrder || []).filter(k => NAV_DEF[k]);
@@ -3231,7 +3151,7 @@ function memberName(id) {
 }
 const firstName = id => memberName(id).split(/\s+/)[0];
 const memberColor = id => member(id)?.color || MCOL[hashStr(id) % MCOL.length];
-const initials = id => { const n = memberName(id).trim().split(/\s+/); return ((n[0] || '?')[0] + (n[1] ? n[1][0] : '')).toUpperCase(); };
+const initials = id => { const n = memberName(id).replace(/\(.*?\)/g, '').replace(/[^\p{L}\s]/gu, '').trim().split(/\s+/).filter(Boolean); return ((n[0] || '?')[0] + (n[1] ? n[1][0] : '')).toUpperCase(); };
 const avatar = (id, s = 22) => `<span class="av" style="--c:${memberColor(id)};--s:${s}px" title="${esc(memberName(id))}">${esc(initials(id))}</span>`;
 const avatars = (ids, s = 20, max = 3) => `<span class="avs">${ids.slice(0, max).map(i => avatar(i, s)).join('')}${ids.length > max ? `<span class="av more" style="--s:${s}px">+${ids.length - max}</span>` : ''}</span>`;
 const isAdmin = () => ['owner', 'admin'].includes(member(me())?.role);
@@ -3245,7 +3165,8 @@ function findMember(n) {
     || ms.find(m => fold(m.email || '').split('@')[0] === q) || ms.find(m => mentionKey(m.user_id).startsWith(q));
   return hit ? hit.user_id : null;
 }
-const myOpen = () => state.tasks.filter(t => !t.completed && t.assignees.includes(me()));
+const myOpen = () => state.tasks.filter(t => !t.completed && t.kind !== 'event' && t.assignees.includes(me()));
+const myEvents = (days = 7) => { const td = todayStr(), to = addDays(td, days); return state.tasks.filter(t => t.kind === 'event' && !t.completed && t.due && (t.endDue || t.due) >= td && t.due <= to && t.assignees.includes(me())).sort(byDue); };
 
 // ---------- zadanie: pola zespołowe ----------
 function normTask(t) {
@@ -3614,6 +3535,8 @@ function showAuth(mode = 'in') {
       <button class="btn primary au-go" type="submit">${mode === 'up' ? 'Załóż konto' : mode === 'reset' ? 'Wyślij link' : 'Zaloguj się'}</button>
     </form>
     ${mode === 'in' ? '<button class="link-btn au-link" data-au="reset">Nie pamiętasz hasła?</button>' : mode === 'reset' ? '<button class="link-btn au-link" data-au="in">Wróć do logowania</button>' : ''}
+    <div class="au-sep"><span>lub</span></div>
+    <button class="btn ghost au-local" data-act="demo-start" type="button">👀 Zobacz wersję demo z przykładowymi danymi</button>
   </div>`;
   if (join) lsSet('lt-join', join);
   const form = $('.au-form', el), msg = $('.au-msg', el), go = $('.au-go', el);
@@ -3716,17 +3639,17 @@ function taskRow(t, o = {}) {
   const subsDone = subs.filter(x => x.completed).length;
   const di = dueLabel(t), st = stOf(t), ev = t.kind === 'event';
   const meta = [];
-  if (ev) meta.push(`<span class="meta-item ev-tag">${sz(I.calBig, 12)} Wydarzenie</span>`);
-  if (st === 1) meta.push(`<span class="meta-item st-tag">W trakcie</span>`);
   if (subs.length) meta.push(`<span class="meta-item">${I.subtask} ${subsDone}/${subs.length}</span>`);
   if (di && !(o.hideToday && di.cls === 'today' && !t.time && !t.recurring)) meta.push(`<span class="meta-item due ${t.completed && !o.asActive ? '' : di.cls}"${t.completed ? '' : ` data-act="task-date" data-id="${t.id}" title="Zmień termin"`}>${I.cal} ${di.label}${t.recurring ? ' ' + I.repeat : ''}</span>`);
   if (t.location) meta.push(`<span class="meta-item">${I.pin} ${esc(t.location)}</span>`);
   if (t.comments.length) meta.push(`<span class="meta-item">${I.comment} ${t.comments.length}</span>`);
-  t.labels.forEach(id => { const l = label(id); if (l) meta.push(`<span class="meta-item" style="color:${l.color}">${I.tag} ${esc(l.name)}</span>`); });
+  t.labels.slice(0, 2).forEach(id => { const l = label(id); if (l) meta.push(`<span class="meta-item lbl" style="--lc:${l.color}">${esc(l.name)}</span>`); });
   if ((o.showProject || o.asActive) && t.parentId && task(t.parentId) && !(o.asActive && task(t.parentId).completed)) meta.push(`<span class="meta-item">${I.subtask} ${esc(task(t.parentId).title)}</span>`);
   if (o.asActive && t.completedBy) meta.push(`<span class="meta-item">${sz(I.done, 12)} ${esc(firstName(t.completedBy))}</span>`);
   const projHtml = o.showProject && p ? `<span class="meta-proj" data-act="nav" data-view="${p.isInbox ? 'inbox' : 'project'}" ${p.isInbox ? '' : `data-id="${p.id}"`} title="Przejdź do projektu">${esc(projName(p))}${sec ? ' / ' + esc(sec.name) : ''} <span class="hash" ${p.color !== '#808080' ? `style="color:${p.color}"` : ''}>#</span></span>` : '';
-  const who = t.assignees.length ? `<button class="row-avs" data-act="assign" data-id="${t.id}" title="Przypisane: ${esc(t.assignees.map(memberName).join(', '))}">${avatars(t.assignees, 22)}</button>`
+  const exU = o.exceptUid || ui.rowExcept;
+  const shownA = exU ? t.assignees.filter(a => a !== exU) : t.assignees;
+  const who = exU && !shownA.length ? '' : t.assignees.length ? `<button class="row-avs" data-act="assign" data-id="${t.id}" title="Przypisane: ${esc(t.assignees.map(memberName).join(', '))}">${avatars(shownA, 22)}</button>`
     : (t.completed ? '' : `<button class="row-avs empty" data-act="assign" data-id="${t.id}" title="Przypisz osobę">${sz(I.person, 15)}</button>`);
   const childList = o.asActive ? state.tasks.filter(x => x.parentId === t.id && x.completed).sort(byOrder) : o.nested ? kids(t.id, o.showDone) : [];
   const collapsed = ui.collapsed['t' + t.id];
@@ -3736,7 +3659,7 @@ function taskRow(t, o = {}) {
       ${childList.length ? `<button class="caret ${collapsed ? 'closed' : ''}" data-act="collapse" data-key="t${t.id}" aria-label="Zwiń">${I.chevron}</button>` : ''}
       ${o.asActive ? `<button class="check checked p${t.priority}" data-act="toggle" data-id="${t.id}" aria-label="Przywróć zadanie" title="Przywróć">${I.check}</button>` : stSlider(t)}
       <div class="task-main" data-act="open" data-id="${t.id}">
-        <div class="task-title">${t.priority < 4 ? `<span class="pflag">${flagIcon(t.priority, 13)}</span>` : ''}${fmtText(t.title)}</div>
+        <div class="task-title">${ev ? `<span class="ev-ic" title="Wydarzenie">${sz(I.calBig, 13)}</span>` : ""}${t.priority < 4 ? `<span class="pflag">${flagIcon(t.priority, 13)}</span>` : ''}${fmtText(t.title)}</div>
         ${t.description ? `<div class="task-desc">${esc(t.description.split('\n')[0])}</div>` : ''}
         ${meta.length || projHtml ? `<div class="task-meta"><div class="meta-l">${meta.join('')}</div>${projHtml}</div>` : ''}
       </div>
@@ -3978,7 +3901,7 @@ taskMenu = function (anchor, t) {
 // ================================================================
 //  Widoki zespołu: Moje zadania, Zespół (tablica osób), Osoba, Start, Raporty
 // ================================================================
-const openAll = () => state.tasks.filter(t => !t.completed);
+const openAll = () => state.tasks.filter(t => !t.completed && t.kind !== 'event');
 const byStatusDue = (a, b) => stOf(b) - stOf(a) || byDue(a, b);
 function groupBlock(key, title, list, o = {}) {
   if (!list.length && !o.always) return '';
@@ -3986,17 +3909,21 @@ function groupBlock(key, title, list, o = {}) {
     ${cbox(key, list.map(t => taskRow(t, { showProject: true })).join('') + (o.add || ''))}</div>`;
 }
 function personTasksHtml(uid0, mine) {
+  ui.rowExcept = uid0;
   const td = todayStr(), list = openAll().filter(t => t.assignees.includes(uid0));
   const prog = list.filter(t => stOf(t) === 1).sort(byDue);
   const rest = list.filter(t => stOf(t) === 0);
   const over = rest.filter(t => t.due && t.due < td).sort(byDue), today = rest.filter(t => t.due === td).sort(byDue);
   const later = rest.filter(t => t.due && t.due > td).sort(byDue), nod = rest.filter(t => !t.due).sort((a, b) => a.priority - b.priority || b.createdAt - a.createdAt);
   const pre = mine ? 'm' : 'p' + uid0;
-  let html = groupBlock(pre + 'prog', '🟡 W trakcie', prog)
+  const evs = state.tasks.filter(t => t.kind === 'event' && !t.completed && t.due && (t.endDue || t.due) >= td && t.due <= addDays(td, 7) && t.assignees.includes(uid0)).sort(byDue);
+  let html = groupBlock(pre + 'prog', 'W trakcie', prog)
     + groupBlock(pre + 'over', '<span style="color:var(--due-overdue)">Po terminie</span>', over, { right: mine && over.length ? `<button class="btn ghost accent" data-act="mine-today" title="Przełóż wszystkie zaległe na dziś">Na dziś</button>` : '' })
     + groupBlock(pre + 'today', 'Dziś', today, { always: mine, add: mine ? addTaskButton('mine', { due: td, assignees: [uid0] }) : '' })
     + groupBlock(pre + 'later', 'Zaplanowane', later)
-    + groupBlock(pre + 'nod', 'Bez terminu', nod);
+    + groupBlock(pre + 'nod', 'Bez terminu', nod)
+    + (evs.length ? `<div class="group"><div class="group-head"><button class="caret ${ui.collapsed[pre + 'ev'] ? 'closed' : ''}" data-act="collapse" data-key="${pre}ev">${I.chevron}</button><h3>Spotkania – najbliższe 7 dni</h3><span class="count">${evs.length}</span></div>${cbox(pre + 'ev', `<div class="pl-list">${evs.map(t => `<div class="pl-day">${t.due === td ? 'Dziś' : PL_DAYS_SHORT[dow(t.due)] + ' ' + parseDate(t.due).getDate() + ' ' + PL_MON_SHORT[parseDate(t.due).getMonth()]}</div>` + planRow({ t })).join('')}</div>`)}</div>` : '');
+  ui.rowExcept = null;
   if (!list.length) html += emptyState(mine ? 'Nie masz przypisanych zadań' : 'Brak przypisanych zadań', mine ? 'Gdy ktoś przypisze Ci zadanie, pojawi się tutaj – dostaniesz też powiadomienie.' : 'Przeciągnij zadanie na tę osobę w widoku Zespół albo wpisz +imię przy dodawaniu.');
   return html;
 }
@@ -4040,7 +3967,7 @@ function renderTeam() {
         : `<button class="tc-who" data-act="person" data-uid="${u}">${avatar(u, 30)}<div class="grow"><h3>${esc(memberName(u))}${u === me() ? ' <span class="muted small">(Ty)</span>' : ''}</h3><span class="muted small">${m?.role === 'owner' ? 'właściciel' : m?.role === 'admin' ? 'administrator' : 'członek'}</span></div></button>`}
         <span class="count">${ts.length}</span></div>
       <div class="tc-stats">${prog ? `<span class="ins yellow"><b>${prog}</b> w trakcie</span>` : ''}${od ? `<span class="ins red"><b>${od}</b> po terminie</span>` : ''}</div>
-      <div class="col-body">${ts.map(t => taskRow(t, { showProject: true })).join('')}${addTaskButton('team:' + u, { assignees: u === '_none' ? [] : [u] })}</div></div>`;
+      <div class="col-body">${ts.map(t => taskRow(t, { showProject: true, exceptUid: u === '_none' ? null : u })).join('')}${addTaskButton('team:' + u, { assignees: u === '_none' ? [] : [u] })}</div></div>`;
   }).join('')}</div>`;
   return html;
 }
@@ -4055,93 +3982,6 @@ document.addEventListener('click', e => {
 });
 
 // ---------- Start ----------
-function renderHome() {
-  const td = todayStr(), now = new Date(), hr = now.getHours();
-  const name = (state.settings.userName || '').split(/\s+/)[0];
-  const greet = hr < 5 ? 'Dobrej nocy' : hr < 12 ? 'Dzień dobry' : hr < 18 ? 'Miłego popołudnia' : 'Dobry wieczór';
-  const tod = hr < 5 ? 'night' : hr < 12 ? 'morning' : hr < 18 ? 'day' : 'evening';
-  ui.bar = { title: 'Start', icon: '', crumb: '', right: '' };
-  const all = openAll(), mine = myOpen();
-  const mProg = mine.filter(t => stOf(t) === 1).sort(byDue), mOver = mine.filter(t => t.due && t.due < td && stOf(t) !== 1).sort(byDue);
-  const mToday = mine.filter(t => t.due === td && stOf(t) !== 1).sort(byDue);
-  const evToday = [...all.filter(t => t.kind === 'event' && (t.due === td || (t.endDue && t.due <= td && td <= t.endDue))).map(t => ({ t, time: t.time || '', end: t.endTime || '', title: t.title, color: 'var(--p' + t.priority + ')' })),
-    ...gcalEventsOn(td, 'gcalToday').map(e => ({ e, time: e.time, end: e.endTime, title: e.title, color: e.color }))].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-  const teamOver = all.filter(t => t.due && t.due < td).length, unassigned = all.filter(t => !t.assignees.length).length;
-  const doneToday = state.tasks.filter(t => t.completed && t.completedAt && fmtDate(new Date(t.completedAt)) === td).length;
-  const myDoneToday = state.tasks.filter(t => t.completed && t.completedBy === me() && t.completedAt && fmtDate(new Date(t.completedAt)) === td).length;
-  const dateStr = `${cap(PL_DAYS[now.getDay()])}, ${now.getDate()} ${['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia'][now.getMonth()]}`;
-  const parts = [mToday.length + mOver.length ? `Masz dziś <b>${mToday.length + mOver.length}</b> ${plural(mToday.length + mOver.length, 'zadanie', 'zadania', 'zadań')}` : 'Na dziś nie masz już nic przypisanego'];
-  if (mProg.length) parts.push(`<b class="hm-yellow">${mProg.length}</b> w trakcie`);
-  if (evToday.length) parts.push(`${evToday.length} ${plural(evToday.length, 'wydarzenie', 'wydarzenia', 'wydarzeń')} w kalendarzu`);
-  const myTot = myDoneToday + mToday.length + mOver.length + mProg.length, pct = myTot ? Math.round(myDoneToday / myTot * 100) : 100, CR = 2 * Math.PI * 38;
-  const hidden = state.settings.hiddenCards || [], cards = {};
-  const card = (key, cls, title, body, extra = '') => { if (!hidden.includes(key)) cards[key] = (i, edit) => `<section class="hm-card ${cls}" data-card="${key}" style="--i:${i}" ${edit ? 'draggable="true"' : ''}><div class="hm-card-h">${edit ? `<span class="hm-grip" title="Przeciągnij">${I.grip}</span>` : ''}<h2>${title}</h2>${edit ? `<span class="hm-mv"><button class="icon-btn" data-act="card-mv" data-k="${key}" data-d="-1" title="Wyżej">${I.up}</button><button class="icon-btn" data-act="card-mv" data-k="${key}" data-d="1" title="Niżej">${I.down}</button></span>` : extra}</div>${body}</section>`; };
-  const mini = t => { const di = dueLabel(t), p = proj(t.projectId); return `<div class="task-wrap"><div class="task hm-row st-${stOf(t)}" data-id="${t.id}">${stSlider(t)}
-      <div class="grow hm-row-main" data-act="open" data-id="${t.id}"><span class="hm-row-t">${fmtText(t.title)}</span><span class="hm-row-m">${di ? `<span class="due-txt ${di.cls}">${di.label}</span> · ` : ''}${esc(projName(p))}</span></div>
-      ${t.assignees.filter(a => a !== me()).length ? avatars(t.assignees.filter(a => a !== me()), 18, 2) : ''}</div></div>`; };
-  let html = `<div class="home ${tod} ${ui.homeEdit ? 'editing' : ''}">
-  <section class="hm-hero"><div class="hm-hero-grid">
-      <div class="hm-greet"><h1>${greet}${name ? `, <span>${esc(name)}</span>` : ''}</h1>
-        <p class="hm-date">${dateStr} · <span id="home-clock">${nowHM()}</span>${team.ws ? ` · <b>${esc(team.ws.name)}</b>` : ''}</p>
-        <p class="hm-sum">${parts.join(', ')}.</p>
-        <div class="hm-chips">
-          <button class="hm-chip yellow" data-act="nav" data-view="mine"><b class="cnt-up" data-to="${mProg.length}">${mProg.length}</b><span>w trakcie</span></button>
-          <button class="hm-chip green" data-act="nav" data-view="mine"><b class="cnt-up" data-to="${mToday.length}">${mToday.length}</b><span>moje na dziś</span></button>
-          <button class="hm-chip red" data-act="nav" data-view="mine"><b class="cnt-up" data-to="${mOver.length}">${mOver.length}</b><span>po terminie</span></button>
-          <button class="hm-chip blue" data-act="nav" data-view="team"><b class="cnt-up" data-to="${unassigned}">${unassigned}</b><span>nieprzypisane</span></button>
-          <button class="hm-chip purple" data-act="nav" data-view="team"><b class="cnt-up" data-to="${doneToday}">${doneToday}</b><span>zespół ukończył dziś</span></button>
-        </div></div>
-      <button class="hm-day-ring" data-act="nav" data-view="mine" title="Twój postęp dnia">
-        <svg viewBox="0 0 92 92" aria-hidden="true"><circle cx="46" cy="46" r="38" fill="none" stroke="var(--line-2)" stroke-width="8"/>
-          <circle class="hm-ring" cx="46" cy="46" r="38" fill="none" stroke="url(#hmg)" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(CR * pct / 100).toFixed(1)} ${CR.toFixed(1)}" transform="rotate(-90 46 46)"/>
-          <defs><linearGradient id="hmg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--due-today)"/><stop offset="1" stop-color="var(--accent)"/></linearGradient></defs></svg>
-        <span class="hm-dr-v"><b>${pct}%</b><span>Twojego dnia</span></span>
-        <span class="hm-dr-l">${myDoneToday} ukończone dziś</span></button>
-    </div>
-    <div class="hm-qa-row"><label class="hm-qa">${I.plus}<input class="home-add" placeholder="Dodaj zadanie… np. „Oferta dla klienta jutro 15:00 +Ania p1”" autocomplete="off" spellcheck="false" aria-label="Dodaj zadanie"><kbd>Enter</kbd></label>
-      <button class="hm-mic" data-act="voice" title="Podyktuj zadanie (V)" aria-label="Podyktuj zadanie">${sz(I.mic, 20)}</button></div>
-    <div class="hm-qa-prev"></div>
-  </section>`;
-  if (!team.ws && auth.ready) html += `<section class="hm-card hm-warn" style="--i:0"><div class="hm-card-h"><h2>${sz(I.team, 16)} Nie jesteś jeszcze w zespole</h2></div><p class="muted">Utwórz zespół albo dołącz kodem zaproszenia, by widzieć wspólne zadania.</p><button class="btn primary" data-act="ob-open">Utwórz lub dołącz</button></section>`;
-  if (team.ws && pushState() === 'off') html += `<section class="hm-card hm-push" style="--i:0"><div class="hm-card-h"><h2>${sz(I.bell, 16)} Włącz powiadomienia</h2></div><p class="muted">Dowiesz się od razu, gdy ktoś przypisze Ci zadanie lub zbliża się termin – także przy zamkniętej aplikacji.</p><button class="btn primary" data-act="push-on">Włącz powiadomienia push</button></section>`;
-  html += '<div class="hm-masonry">';
-  card('prog', 'hm-today', `🟡 Moje w trakcie <span class="hm-cnt">${mProg.length}</span>`, `<div class="hm-list">${mProg.slice(0, 6).map(mini).join('') || `<div class="hm-empty sm">${sz(I.done, 22)}<span>Nic nie jest w trakcie. Przesuń suwak zadania na środek, gdy zaczynasz.</span></div>`}</div>`, `<button class="icon-btn" data-act="nav" data-view="mine" title="Moje zadania">${I.right}</button>`);
-  const list = [...mOver, ...mToday];
-  card('today', 'hm-today', `${sz(todayIcon(), 16)} Moje na dziś <span class="hm-cnt">${list.length}</span>`, `${mOver.length ? `<button class="hm-od" data-act="mine-today">${sz(I.calBig, 15)} ${mOver.length} po terminie – przełóż na dziś</button>` : ''}
-    <div class="hm-list">${list.slice(0, 7).map(mini).join('') || `<div class="hm-empty sm">${sz(I.done, 22)}<span>Dzień czysty – brawo!</span></div>`}${list.length > 7 ? `<button class="hm-more" data-act="nav" data-view="mine">Pokaż wszystkie (${list.length}) ${sz(I.right, 14)}</button>` : ''}</div>`,
-    `<button class="icon-btn" data-act="nav" data-view="mine" title="Moje zadania">${I.right}</button>`);
-  card('events', 'hm-events', `${sz(I.calMonth, 16)} Dziś w kalendarzu <span class="hm-cnt">${evToday.length}</span>`, evToday.length ? evToday.map(x => `<button class="hm-ev" style="--c:${x.color || 'var(--qi-b)'}" ${x.t ? `data-act="open" data-id="${x.t.id}"` : `data-act="home-day" data-date="${td}"`}><span class="hm-ev-t">${x.time ? x.time + (x.end ? '–' + x.end : '') : 'cały dzień'}</span><span class="grow">${esc(x.title)}</span>${x.e ? `<span class="muted small">${esc(x.e.cal)}</span>` : x.t.assignees.length ? avatars(x.t.assignees, 16, 2) : ''}</button>`).join('') : `<div class="hm-empty sm">${sz(I.calMonth, 22)}<span>Brak wydarzeń dziś.</span></div>`,
-    `<button class="icon-btn" data-act="nav" data-view="calendar" title="Kalendarz">${I.right}</button>`);
-  const days7 = [...Array(7)].map((_, i) => addDays(td, i)), cnt = days7.map(d => mine.filter(t => t.due === d)), maxC = Math.max(1, ...cnt.map(a => a.length));
-  card('week', 'hm-week', `${sz(I.upcoming, 16)} Mój tydzień`, `<div class="hm-days">${days7.map((d, i) => `<button class="hm-day ${i === 0 ? 'today' : ''} ${dow(d) === 0 || dow(d) === 6 ? 'we' : ''}" data-act="home-day" data-date="${d}" title="${shortDate(d)}: ${cnt[i].length}" style="--d:${i}">
-      <span class="hm-day-n">${cnt[i].length || ''}</span><span class="hm-day-bar"><i style="--h:${(cnt[i].length / maxC * 100).toFixed(0)}%">${cnt[i].slice(0, 4).map(t => `<em style="--c:var(--p${t.priority})"></em>`).join('')}</i></span>
-      <span class="hm-day-l">${i === 0 ? 'Dziś' : PL_DAYS_SHORT[dow(d)]}</span><span class="hm-day-d">${parseDate(d).getDate()}</span></button>`).join('')}</div>
-    <div class="hm-sub">Najbliższe terminy</div>
-    ${mine.filter(t => t.due && t.due > td).sort(byDue).slice(0, 4).map(t => { const n = diffDays(t.due, td), di = dueInfo(t.due, t.time); return `<button class="hm-dl" data-act="open" data-id="${t.id}"><span class="hm-dl-n ${di.cls}">${n === 1 ? 'jutro' : 'za ' + n + ' dni'}</span><span class="grow">${esc(t.title)}</span><span class="muted small">${shortDate(t.due)}</span></button>`; }).join('') || '<div class="muted small" style="padding:6px 2px">Brak zaplanowanych terminów.</div>'}`,
-    `<button class="icon-btn" data-act="nav" data-view="upcoming" title="Nadchodzące">${I.right}</button>`);
-  card('team', 'hm-team', `${sz(I.team, 16)} Zespół`, team.members.length ? `<div class="hm-tm">${team.members.map(m => { const ts = all.filter(t => t.assignees.includes(m.user_id)), p = ts.filter(t => stOf(t) === 1).length, od = ts.filter(t => t.due && t.due < td).length; return `<button class="hm-tm-r" data-act="person" data-uid="${m.user_id}">${avatar(m.user_id, 26)}<span class="grow"><b>${esc(memberName(m.user_id))}</b><span class="hm-tm-bar"><i style="--w:${Math.min(100, ts.length * 8)}%"></i></span></span><span class="hm-tm-n">${ts.length}${p ? ` · <em class="y">${p}</em>` : ''}${od ? ` · <em class="r">${od}</em>` : ''}</span></button>`; }).join('')}</div>
-    ${teamOver ? `<div class="muted small" style="margin-top:6px">Zespół: <b style="color:var(--due-overdue)">${teamOver}</b> po terminie · ${unassigned} nieprzypisanych</div>` : ''}` : '<div class="muted small">Zaproś osoby w Ustawieniach → Zespół.</div>',
-    `<button class="icon-btn" data-act="nav" data-view="team" title="Zespół">${I.right}</button>`);
-  const recent = state.tasks.filter(t => t.completed && t.completedAt).sort((a, b) => b.completedAt - a.completedAt).slice(0, 5);
-  card('done', 'hm-done', `${sz(I.done, 16)} Ostatnio ukończone w zespole`, recent.map(t => `<div class="task-wrap"><div class="task hm-row done-row" data-id="${t.id}">
-      <span class="check checked p${t.priority}" style="pointer-events:none">${I.check}</span>
-      <div class="grow hm-row-main" data-act="open" data-id="${t.id}"><span class="hm-row-t">${esc(t.title)}</span><span class="hm-row-m">${t.completedBy ? esc(firstName(t.completedBy)) + ' · ' : ''}${fmtDateTime(t.completedAt)}</span></div>
-      ${t.completedBy ? avatar(t.completedBy, 18) : ''}</div></div>`).join('') || '<div class="muted small">Jeszcze nic nie ukończono.</div>',
-    `<button class="icon-btn" data-act="nav" data-view="completed" title="Ukończone">${I.right}</button>`);
-  card('proj', 'hm-proj', `<span class="hash">#</span> Projekty`, [proj('inbox'), ...userProjects()].map(p => {
-    const open = all.filter(t => t.projectId === p.id).length, done = state.tasks.filter(t => t.projectId === p.id && t.completed).length;
-    const od = all.filter(t => t.projectId === p.id && t.due && t.due < td).length, pc = open + done ? Math.round(done / (open + done) * 100) : 0;
-    const col = p.color && p.color !== '#808080' ? p.color : 'var(--muted)';
-    return `<button class="hm-p" data-act="nav" data-view="${p.isInbox ? 'inbox' : 'project'}" ${p.isInbox ? '' : `data-id="${p.id}"`}>
-      <span class="hm-p-h"><span class="hash" style="color:${col}">#</span><span class="grow">${esc(projName(p))}</span>${od ? `<span class="hm-p-od">${od} po terminie</span>` : ''}<span class="muted small">${open} otw.</span></span>
-      <span class="hm-p-bar"><i style="--w:${pc}%;--c:${col}"></i></span><span class="hm-p-pc muted small">${pc}% ukończone</span></button>`;
-  }).join(''));
-  const edit = !!ui.homeEdit;
-  html += cardOrder(Object.keys(cards)).map((k, i) => cards[k](i + 1, edit)).join('');
-  html += `</div><div class="hm-foot">${state.settings.tileEdit ? `<button data-act="home-edit" class="${edit ? 'on' : ''}">${sz(I.grip, 14)} ${edit ? 'Gotowe – zapisz układ' : 'Ułóż kafelki'}</button>` : ''}<button data-act="nav" data-view="prefs">${sz(I.gear, 14)} Dostosuj kafelki Startu</button><button data-act="nav" data-view="guide">${sz(I.book, 14)} Poradnik i skróty</button><button data-act="voice">${sz(I.mic, 14)} Dodaj głosem (V)</button></div></div>`;
-  if (ui.stagger) setTimeout(countUp, 0);
-  return html;
-}
 // szybkie dodawanie ze Startu: domyślnie dla mnie, na dziś
 function homeAdd(text) {
   const r = parseQuick(text, {});
@@ -4155,30 +3995,6 @@ function homeAdd(text) {
 }
 
 // ---------- Raportowanie zespołu ----------
-function renderReports() {
-  const td = todayStr(), all = openAll(), done = state.tasks.filter(t => t.completed && t.completedAt);
-  const days = [...Array(14)].map((_, i) => addDays(td, i - 13));
-  const per = days.map(d => done.filter(t => fmtDate(new Date(t.completedAt)) === d).length), max = Math.max(1, ...per);
-  const wk = done.filter(t => t.completedAt > Date.now() - 7 * 864e5);
-  const ontime = wk.filter(t => !t.due || fmtDate(new Date(t.completedAt)) <= t.due).length;
-  let html = header('Raportowanie', { icon: sz(I.pulse, 24), sub: team.ws ? esc(team.ws.name) + ' · statystyki całego zespołu' : '' });
-  html += `<div class="rep-cards">
-    <div class="rep-card"><div class="v">${done.filter(t => fmtDate(new Date(t.completedAt)) === td).length}</div><div class="l">Ukończone dziś</div></div>
-    <div class="rep-card"><div class="v">${wk.length}</div><div class="l">Ukończone w 7 dni</div></div>
-    <div class="rep-card"><div class="v">${wk.length ? Math.round(ontime / wk.length * 100) : 100}%</div><div class="l">W terminie (7 dni)</div></div>
-    <div class="rep-card"><div class="v" style="color:var(--st1)">${all.filter(t => stOf(t) === 1).length}</div><div class="l">W trakcie</div></div>
-    <div class="rep-card"><div class="v">${all.length}</div><div class="l">Otwarte</div></div>
-    <div class="rep-card"><div class="v" style="color:var(--due-overdue)">${all.filter(t => t.due && t.due < td).length}</div><div class="l">Po terminie</div></div>
-  </div>
-  <div class="rep-box"><h3>Ukończone przez zespół – ostatnie 14 dni</h3>
-    <div class="bars">${per.map(c => `<div class="bar-col"><span class="bar-v">${c || ''}</span><div class="bar" style="height:${c / max * 78}%"></div></div>`).join('')}</div>
-    <div class="bar-l">${days.map(d => `<span>${parseDate(d).getDate()}</span>`).join('')}</div></div>
-  <div class="rep-box" style="margin-top:16px"><h3>Osoby</h3><table class="rep-tbl"><tr><th></th><th>Otwarte</th><th>W trakcie</th><th>Po terminie</th><th>Ukończone 7 dni</th><th>Ukończone 30 dni</th></tr>
-    ${team.members.map(m => { const u = m.user_id, ts = all.filter(t => t.assignees.includes(u)); return `<tr data-act="person" data-uid="${u}"><td>${avatar(u, 22)} ${esc(memberName(u))}</td><td>${ts.length}</td><td>${ts.filter(t => stOf(t) === 1).length || ''}</td><td class="r">${ts.filter(t => t.due && t.due < td).length || ''}</td><td>${wk.filter(t => t.completedBy === u).length || ''}</td><td>${done.filter(t => t.completedBy === u && t.completedAt > Date.now() - 30 * 864e5).length || ''}</td></tr>`; }).join('')}
-    <tr><td><span class="av none" style="--s:22px">?</span> Nieprzypisane</td><td>${all.filter(t => !t.assignees.length).length}</td><td></td><td class="r">${all.filter(t => !t.assignees.length && t.due && t.due < td).length || ''}</td><td></td><td></td></tr></table></div>`;
-  html += reportsExtra();
-  return html;
-}
 
 // ---------- powiadomienia w aplikacji ----------
 const NOTIF_ICON = { assigned: '👤', status: '🔄', reminder: '⏰', comment: '💬', done: '✅' };
@@ -4445,7 +4261,7 @@ function tgBlockHtml(b, hh) {
       <b>${esc(e.title)}</b><span>${e.time}–${e.endTime}${e.location ? ' · ' + esc(e.location) : ''}</span></a>`;
   }
   const t = b.t;
-  return `<div class="tg-ev st-${stOf(t)} ${t.kind === 'event' ? 'is-event' : 'is-task'} ${t.completed ? 'done' : ''} ${short ? 'short' : ''}" data-tgid="${t.id}" style="top:${top}px;height:${h}px;left:calc(${left}% + 2px);width:calc(${w}% - 4px);--c:${itemColor(t)}" title="${esc(t.title)} · ${timeRange(t)}${t.assignees.length ? ' · ' + esc(t.assignees.map(memberName).join(', ')) : ''}">
+  return `<div class="tg-ev st-${stOf(t)} ${t.kind === 'event' ? 'is-event' : 'is-task'} ${t.completed && t.kind !== 'event' ? 'done' : ''} ${pastEvent(t) ? 'past' : ''} ${short ? 'short' : ''}" data-tgid="${t.id}" style="top:${top}px;height:${h}px;left:calc(${left}% + 2px);width:calc(${w}% - 4px);--c:${itemColor(t)}" title="${esc(t.title)} · ${timeRange(t)}${t.assignees.length ? ' · ' + esc(t.assignees.map(memberName).join(', ')) : ''}">
     <b>${t.kind === 'task' ? `<span class="tg-st s${stOf(t)}"></span>` : ''}${esc(t.title)}</b><span>${timeRange(t)}${t.location ? ' · ' + esc(t.location) : ''}</span>
     ${t.assignees.length && !short ? `<span class="tg-avs">${avatars(t.assignees, 16, 3)}</span>` : ''}<i class="tg-rs" title="Zmień czas trwania"></i></div>`;
 }
@@ -4483,15 +4299,16 @@ function renderCalendar() {
   const nCal = team.cals.length, errs = team.cals.filter(c => team.ev[c.id]?.err);
   let html = header(`<span class="cal2-title">${calTitle(mode, base)}</span>`, { icon: sz(I.calMonth, 24), iconCls: 'tile', barTitle: 'Kalendarz',
     sub: `<span class="cal-legend">${nCal ? `${nCal} ${plural(nCal, 'kalendarz Google', 'kalendarze Google', 'kalendarzy Google')}` : '<button class="link-btn" data-act="pref-open" data-t="calendars">+ Podłącz Kalendarz Google</button>'}${errs.length ? ` · <span style="color:var(--due-overdue)" title="${esc(errs.map(c => c.name + ': ' + team.ev[c.id].err).join('\n'))}">${errs.length} z błędem</span>` : ''}</span>`,
+    after: team.members.length ? `<div class="cal-people">${[['all', sz(I.team, 15), 'Wszyscy'], ...team.members.map(m => [m.user_id, avatar(m.user_id, 20), firstName(m.user_id)]), ['none', '<span class="av none" style="--s:20px">?</span>', 'Nieprzypisane']].map(([v, ic, l]) => { const w = state.settings.who || 'all', on = w === v || (v === me() && w === 'me'); return `<button class="cp-chip ${on ? 'on' : ''}" data-act="cal-who" data-w="${v}" style="--c:${v === 'all' || v === 'none' ? 'var(--accent)' : memberColor(v)}">${ic}<span>${esc(l)}</span></button>`; }).join('')}</div>` : '',
     right: `<div class="seg-inline cal-modes">${CAL_MODES.map(([v, l]) => `<button class="${mode === v ? 'sel' : ''}" data-act="cal-mode" data-v="${v}">${l}</button>`).join('')}</div>
       <div class="cal2-nav">${mode === 'agenda' ? '' : `<button class="icon-btn" data-act="cal-step" data-n="-1" title="Wstecz">${I.left}</button>`}<button class="btn" data-act="cal-step" data-n="0">Dziś</button>${mode === 'agenda' ? '' : `<button class="icon-btn" data-act="cal-step" data-n="1" title="Dalej">${I.right}</button>`}</div>
-      <button class="btn cal-src" data-act="cal-src">${sz(I.eye, 15)} Kalendarze</button>` });
+      ${mode === 'week' ? `<button class="btn cal-wk ${state.settings.calWork ? 'on' : ''}" data-act="cal-work" title="Pokaż tylko dni robocze">Pn–Pt</button>` : ''}<button class="btn cal-src" data-act="cal-src">${sz(I.eye, 15)} Kalendarze</button>` });
   if (mode === 'month') {
     const first = parseDate(base), y = first.getFullYear(), m = first.getMonth();
     const start = weekStart(base), end = addDays(weekStart(fmtDate(new Date(y, m + 1, 0))), 6);
     let cells = '', i = 0, maxN = 1;
     for (let d = start; d <= end; d = addDays(d, 1)) maxN = Math.max(maxN, calTasks(d).length);
-    const chip = t => `<div class="cal2-chip st-${stOf(t)} ${t.completed ? 'done' : ''} ${t.kind === 'event' ? 'is-event' : ''}" draggable="true" data-act="open" data-id="${t.id}" style="--c:${itemColor(t)}" title="${esc(t.title)}"><i></i><span>${t.time ? `<b>${t.time}</b> ` : ''}${esc(t.title)}</span></div>`;
+    const chip = t => `<div class="cal2-chip st-${stOf(t)} ${t.completed && t.kind !== 'event' ? 'done' : ''} ${pastEvent(t) ? 'past' : ''} ${t.kind === 'event' ? 'is-event' : ''}" draggable="true" data-act="open" data-id="${t.id}" style="--c:${itemColor(t)}" title="${esc(t.title)}"><i></i><span>${t.time ? `<b>${t.time}</b> ` : ''}${esc(t.title)}</span></div>`;
     const evChip = e => `<div class="cal2-chip ev" style="--c:${e.color}" title="${esc(e.cal + ': ' + e.title)}"><i></i><span>${e.time ? `<b>${e.time}</b> ` : ''}${esc(e.title)}</span></div>`;
     for (let d = start; d <= end; d = addDays(d, 1)) {
       const ts = calTasks(d), ev = gcalEventsOn(d, 'gcalCal'), w = dow(d);
@@ -4520,7 +4337,7 @@ function renderCalendar() {
     return html;
   }
   let cols;
-  if (mode === 'week') cols = [...Array(7)].map((_, i) => { const d = addDays(base, i); return { date: d, head: `<span>${PL_DAYS_SHORT[dow(d)]}</span><b>${parseDate(d).getDate()}</b>` }; });
+  if (mode === 'week') cols = [...Array(state.settings.calWork ? 5 : 7)].map((_, i) => { const d = addDays(base, i); return { date: d, head: `<span>${PL_DAYS_SHORT[dow(d)]}</span><b>${parseDate(d).getDate()}</b>` }; });
   else if (mode === 'day') cols = [{ date: base, head: `<span>${cap(PL_DAYS[dow(base)])}</span><b>${parseDate(base).getDate()}</b>` }];
   else {
     const who = state.settings.who || 'all';
@@ -4587,6 +4404,8 @@ document.addEventListener('click', e => {
   }
   else if (a === 'cal-goday') { ui.calSel = el.dataset.date; ui.calDay = el.dataset.date; ui.calMode = 'day'; ui.stagger = true; render(); }
   else if (a === 'cal-src') calSources(el);
+  else if (a === 'cal-work') { state.settings.calWork = !state.settings.calWork; ui.quiet = true; commit(); }
+  else if (a === 'cal-who') { state.settings.who = el.dataset.w === me() ? 'me' : el.dataset.w; ui.quiet = true; commit(); }
 });
 document.addEventListener('dblclick', e => {
   const cell = e.target.closest('.cal2-cell');
@@ -4739,7 +4558,7 @@ function renderPrefs() {
   const sec = (i, title, body, extra = '') => `<section class="pf-card" style="--i:${i}"><h3>${title}${extra}</h3>${body}</section>`;
   let body = '';
   if (tab === 'general') {
-    const cardOpts = [['prog', 'Moje w trakcie'], ['today', 'Moje na dziś'], ['events', 'Dziś w kalendarzu'], ['week', 'Mój tydzień'], ['team', 'Zespół'], ['done', 'Ostatnio ukończone'], ['proj', 'Projekty']];
+    const cardOpts = [['today', 'Moje na dziś'], ['plan', 'Mój plan dnia'], ['next', 'Najbliższe 7 dni'], ['team', 'Zespół'], ['unassigned', 'Nieprzypisane'], ['done', 'Ostatnio ukończone']];
     body = sec(0, 'Profil', prefRow('Imię i nazwisko', 'Tak widzi Cię zespół', `<input class="pf-in" data-k="userName" value="${esc(s.userName || '')}" maxlength="60" aria-label="Imię">`)
       + prefRow('Widok po uruchomieniu', 'Co widzisz po otwarciu aplikacji', segBtns('startView', s.startView, [['home', 'Start'], ['mine', 'Moje'], ['today', 'Dziś'], ['calendar', 'Kalendarz']])))
       + sec(1, 'Lista zadań', prefRow('Gęstość listy', 'Odstępy między zadaniami', segBtns('density', s.density, [['compact', 'Zwarta'], ['normal', 'Normalna'], ['roomy', 'Przestronna']]))
@@ -4749,12 +4568,8 @@ function renderPrefs() {
       + sec(2, 'Kalendarz', prefRow('Początek dnia w siatce godzin', 'Od której godziny przewijać widok tygodnia i dnia', stepper('calStartHour', s.calStartHour ?? 7, 1, '', ':00'))
       + prefRow('Numery tygodni', 'W widoku miesiąca', swBtn(!!s.calWeekNums, 'calWeekNums'))
       + prefRow('Wydarzenia Google w Nadchodzących', '', swBtn(s.gcalUp !== false, 'gcalUp')) + prefRow('Wydarzenia Google na Starcie', '', swBtn(s.gcalToday !== false, 'gcalToday')))
-      + sec(3, 'Animacje', prefRow('Animacje', 'Przejścia, wjazdy list, konfetti', segBtns('anim', s.anim, [['full', 'Pełne'], ['off', 'Wyłączone']]))
-      + prefRow('Animacja przy uruchomieniu', '<button class="link-btn" data-act="splash-preview">Pokaż podgląd</button>', swBtn(s.splash !== false, 'splash'))
-      + prefRow('Efekty po najechaniu', 'Podświetlenia i poświata pod kursorem', swBtn(s.hoverFx !== false, 'hoverFx')))
-      + sec(4, 'Strona Start', `<p class="pf-p">Pokaż tylko potrzebne kafelki.</p><div class="pf-checks">${cardOpts.map(([k, l]) => `<button class="pf-chk ${(s.hiddenCards || []).includes(k) ? '' : 'on'}" data-act="pref-card" data-v="${k}"><span>${l}</span><i>${I.checkSmall}</i></button>`).join('')}</div>`
-      + prefRow('Przestawianie kafelków', 'Pokazuje na Starcie przycisk „Ułóż kafelki”', swBtn(!!s.tileEdit, 'tileEdit'))
-      + (s.cardOrder?.length ? prefRow('Kolejność kafelków', 'Wróć do układu domyślnego', `<button class="btn sm" data-act="card-reset">Przywróć</button>`) : ''))
+      + sec(3, 'Animacje', prefRow('Animacje', 'Płynne przejścia między widokami', segBtns('anim', s.anim, [['full', 'Włączone'], ['off', 'Wyłączone']])))
+      + sec(4, 'Strona Start', `<p class="pf-p">Pokaż tylko potrzebne kafelki.</p><div class="pf-checks">${cardOpts.map(([k, l]) => `<button class="pf-chk ${(s.hiddenCards || []).includes(k) ? '' : 'on'}" data-act="pref-card" data-v="${k}"><span>${l}</span><i>${I.checkSmall}</i></button>`).join('')}</div>`)
       + sec(5, 'Dodawanie głosem', prefRow('Status', (dictNS || SpeechRec) ? '<span class="ok-txt">Rozpoznawanie mowy dostępne</span>' : 'Niedostępne w tym oknie', `<button class="btn sm" data-act="voice">${sz(I.mic, 14)} Wypróbuj</button>`)
       + prefRow('Dodawaj od razu', 'Po zakończeniu mówienia bez potwierdzania', swBtn(!!s.voiceAuto, 'voiceAuto')))
       + sec(6, 'Przywracanie', prefRow('Ustawienia domyślne', 'Wygląd i zachowanie jak na początku (zadania zostają)', `<button class="btn sm" data-act="pref-reset">Przywróć</button>`));
@@ -4834,6 +4649,8 @@ document.addEventListener('click', async e => {
   if (el.dataset.scope) { $$('.cf-scope button').forEach(b => b.classList.toggle('sel', b === el)); return; }
   if (el.dataset.color && el.closest('.cal-form')) { $$('.cf-c').forEach(b => b.classList.toggle('on', b === el)); return; }
   const a = el.dataset.act, sb = auth.sb;
+  if (DEMO && a === 'acc-out') { exitDemo(); return; }
+  if (DEMO && ['ob-open', 'push-on', 'push-off', 'push-test', 'acc-pass', 'ws-new-code', 'm-remove', 'ws-leave', 'cal-del', 'cal-refresh', 'acc-in'].includes(a)) { toast('W wersji demo to jest wyłączone – zaloguj się, aby z tego korzystać'); return; }
   switch (a) {
     case 'ob-open': showOnboard(); break;
     case 'push-on': pushEnable(); break;
@@ -4874,6 +4691,7 @@ document.addEventListener('submit', async e => {
   const f = e.target.closest?.('.cal-form');
   if (!f) return;
   e.preventDefault();
+  if (DEMO) { toast('W wersji demo nie można podłączać kalendarzy – zaloguj się'); return; }
   const name = f.name.value.trim();
   let url = f.url.value.trim().replace(/^webcal:\/\//i, 'https://');
   const scope = $('.cf-scope .sel', f)?.dataset.scope || 'personal', color = $('.cf-c.on', f)?.dataset.color || '#4073ff';
@@ -4890,6 +4708,7 @@ document.addEventListener('submit', async e => {
 });
 document.addEventListener('change', async e => {
   const el = e.target, a = el.dataset?.act2, sb = auth.sb;
+  if (DEMO) return;
   if (el.matches?.('.pf-in[data-k="userName"]') && team.ws) { const v = el.value.trim(); if (v) { await sb.from('ws_members').update({ name: v }).eq('workspace_id', team.ws.id).eq('user_id', me()); await loadMembers(); ui.quiet = true; render(); } }
   if (el.matches?.('.pf-in[data-ws="name"]') && team.ws) { const v = el.value.trim(); if (!v) return; const { error } = await sb.from('workspaces').update({ name: v }).eq('id', team.ws.id); if (!error) { team.ws.name = v; toast('Zmieniono nazwę zespołu'); ui.quiet = true; render(); } }
   if (a === 'm-role') { const { error } = await sb.from('ws_members').update({ role: el.value }).eq('workspace_id', team.ws.id).eq('user_id', el.dataset.uid); toast(error ? 'Nie udało się: ' + error.message : 'Zmieniono rolę'); await loadMembers(); }
@@ -4922,7 +4741,7 @@ openQuick = function () {
   ui.modal = { type: 'quick' };
   openForm('quick', d);
 };
-const WHO_VIEWS = ['today', 'upcoming', 'calendar', 'filters', 'label', 'filter', 'search', 'inbox', 'project'];
+const WHO_VIEWS = ['today', 'upcoming', 'filters', 'label', 'filter', 'search', 'inbox', 'project'];
 const teamBaseRender = render;
 render = function () {
   teamBaseRender();
@@ -4932,8 +4751,9 @@ render = function () {
     tr.insertAdjacentHTML('afterbegin', `<button class="who-chip ${w !== 'all' ? 'on' : ''}" data-act="who" title="Pokaż zadania osoby">${w === 'all' ? sz(I.team, 16) : w === 'none' ? sz(I.ban, 15) : avatar(w === 'me' ? me() : w, 18)}<span>${esc(whoLabel())}</span>${I.chevronDown}</button>`);
   }
   const u = $('#sidebar .user');
-  if (u && team.ws && !$('.ws-name', u)) u.insertAdjacentHTML('beforeend', `<small class="ws-name">${esc(team.ws.name)}</small>`);
-  if (u && auth.user) { const av = $('.avatar', u); if (av) av.outerHTML = avatar(me(), 26); }
+  if (u && team.ws && !$('.ws-name', u)) (u.querySelector(':scope > span:not(.avatar):not(.av)') || u).insertAdjacentHTML('beforeend', `<small class="ws-name">${esc(team.ws.name)}</small>`);
+  if (u && (auth.user || DEMO)) { const av = $('.avatar', u); if (av) av.outerHTML = avatar(me(), 26); }
+  if (DEMO && !$('.demo-bar')) $('#main')?.insertAdjacentHTML('afterbegin', '<div class="demo-bar"><b>Wersja demo</b><span>Przykładowa firma „Studio Nova” – zmiany nie są nigdzie zapisywane.</span><button class="btn sm" data-act="demo-exit">Zakończ demo</button></div>');
   renderNotifBadge();
   const sc = $('.tg-scroll');
   if (sc) {
@@ -4943,10 +4763,309 @@ render = function () {
 };
 setInterval(() => { const n = new Date(), m = n.getHours() * 60 + n.getMinutes(); $$('.tg-now').forEach(x => { x.style.top = m / 60 * HH() + 'px'; }); }, 60000);
 
+
+
+// ================================================================
+//  v2 – prostsze i czytelniejsze widoki: Dziś, Start, Raporty, menu konta
+// ================================================================
+const dateLong = d => { const x = parseDate(d); return `${cap(PL_DAYS[x.getDay()])}, ${x.getDate()} ${['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia'][x.getMonth()]}`; };
+// wiersz planu dnia (wydarzenie Listo lub z Kalendarza Google)
+function planRow(x) {
+  if (x.e) {
+    const e = x.e;
+    return `<a class="pl-row ext" style="--c:${e.color}" ${e.link && /^https:\/\//.test(e.link) ? `href="${esc(e.link)}" target="_blank" rel="noopener"` : ''}>
+      <span class="pl-t">${e.time ? `<b>${e.time}</b>${e.endTime ? `<i>${e.endTime}</i>` : ''}` : '<b>cały dzień</b>'}</span><span class="pl-bar"></span>
+      <span class="grow"><span class="pl-title">${esc(e.title)}</span><span class="pl-meta">${I.google} ${esc(e.cal)}${e.location ? ' · ' + esc(e.location) : ''}</span></span></a>`;
+  }
+  const t = x.t, now = nowHM(), live = t.due === todayStr() && t.time && t.time <= now && (t.endTime || t.time) >= now;
+  return `<div class="pl-row ${live ? 'live' : ''} ${t.endTime && t.endTime < now && t.due === todayStr() ? 'past' : ''}" style="--c:${itemColor(t)}" data-act="open" data-id="${t.id}">
+    <span class="pl-t">${t.time ? `<b>${t.time}</b>${t.endTime ? `<i>${t.endTime}</i>` : ''}` : '<b>cały dzień</b>'}</span><span class="pl-bar"></span>
+    <span class="grow"><span class="pl-title">${live ? '<em class="pl-now">teraz</em>' : ''}${esc(t.title)}</span><span class="pl-meta">${t.location ? `${I.pin} ${esc(t.location)} · ` : ''}${esc(projName(proj(t.projectId)))}</span></span>
+    ${t.assignees.length ? avatars(t.assignees, 22, 4) : ''}</div>`;
+}
+function dayPlan(d, list) {
+  const g = gcalEventsOn(d, 'gcalToday').map(e => ({ e, k: e.time || '00:00' }));
+  return [...list.map(t => ({ t, k: t.time || '00:00' })), ...g].sort((a, b) => a.k.localeCompare(b.k));
+}
+// ---------- Dziś ----------
+function renderToday() {
+  const td = todayStr(), act = active();
+  const overdue = act.filter(t => t.kind !== 'event' && t.due && t.due < td).sort(byDue);
+  const todayAll = act.filter(t => t.due === td || (t.endDue && t.due < td && td <= t.endDue));
+  const events = todayAll.filter(t => t.kind === 'event').sort(byDue);
+  const tasks = todayAll.filter(t => t.kind !== 'event').sort((a, b) => stOf(b) - stOf(a) || byDue(a, b));
+  const plan = dayPlan(td, events);
+  const done = state.tasks.filter(t => t.completed && t.completedAt && fmtDate(new Date(t.completedAt)) === td && whoOk(t)).length;
+  let html = header('Dziś', { icon: todayIcon(), iconCls: 'soft-red',
+    sub: `${dateLong(td)} · <b>${tasks.length}</b> ${plural(tasks.length, 'zadanie', 'zadania', 'zadań')} · <b>${plan.length}</b> w kalendarzu${done ? ` · <span class="ok-txt">${done} ukończone</span>` : ''}` });
+  if (overdue.length) html += `<div class="group"><div class="group-head"><button class="caret ${ui.collapsed.overdue ? 'closed' : ''}" data-act="collapse" data-key="overdue">${I.chevron}</button><h3 class="red-h">Po terminie</h3><span class="count">${overdue.length}</span><button class="btn ghost accent" data-act="reschedule-overdue" title="Przełóż wszystkie zaległe na dziś">Przełóż na dziś</button></div>
+    ${cbox('overdue', overdue.map(t => taskRow(t, { showProject: true })).join(''))}</div>`;
+  if (plan.length) html += `<div class="group"><div class="group-head"><h3>Plan dnia</h3><span class="count">${plan.length}</span><button class="btn ghost" data-act="cal-goday" data-date="${td}" title="Otwórz w kalendarzu">${sz(I.calMonth, 15)} Kalendarz</button></div><div class="pl-list">${plan.map(planRow).join('')}</div></div>`;
+  html += `<div class="group" data-drop="day" data-date="${td}"><div class="group-head"><h3>Zadania na dziś</h3><span class="count">${tasks.length || ''}</span></div>
+    ${tasks.map(t => taskRow(t, { showProject: true, hideToday: true })).join('')}${addTaskButton('today', { due: td })}</div>`;
+  if (!tasks.length && !overdue.length && !plan.length && !(ui.addForm && ui.addForm.ctx === 'today')) html += emptyState('Na dziś nic nie zaplanowano', 'Dodaj zadanie albo zajrzyj do Nadchodzących.');
+  return html;
+}
+// ---------- Start ----------
+function renderHome() {
+  const td = todayStr(), now = new Date(), hr = now.getHours();
+  const name = (state.settings.userName || '').replace(/\(.*?\)/g, '').trim().split(/\s+/)[0];
+  const greet = hr < 5 ? 'Dobrej nocy' : hr < 12 ? 'Dzień dobry' : hr < 18 ? 'Dzień dobry' : 'Dobry wieczór';
+  ui.bar = { title: 'Start', icon: '', crumb: '', right: '' };
+  const all = openAll(), mine = myOpen();
+  const mProg = mine.filter(t => stOf(t) === 1).sort(byDue);
+  const mOver = mine.filter(t => t.due && t.due < td && stOf(t) !== 1).sort(byDue);
+  const mToday = mine.filter(t => t.due === td && stOf(t) !== 1).sort(byDue);
+  const myEv = state.tasks.filter(t => t.kind === 'event' && !t.completed && (t.due === td || (t.endDue && t.due <= td && td <= t.endDue)) && t.assignees.includes(me())).sort(byDue);
+  const plan = dayPlan(td, myEv);
+  const unassigned = all.filter(t => !t.assignees.length).sort(byDue);
+  const doneToday = state.tasks.filter(t => t.completed && t.completedAt && fmtDate(new Date(t.completedAt)) === td).length;
+  const focus = [...mProg, ...mOver, ...mToday];
+  const nextPlan = plan.find(x => (x.t?.time || x.e?.time || '') >= nowHM());
+  const parts = [focus.length ? `Masz dziś <b>${focus.length}</b> ${plural(focus.length, 'zadanie', 'zadania', 'zadań')}` : 'Na dziś nie masz już zadań'];
+  if (mOver.length) parts.push(`<b class="hm-red">${mOver.length}</b> po terminie`);
+  if (plan.length) parts.push(`<b>${plan.length}</b> w kalendarzu${nextPlan ? ` – najbliższe o <b>${nextPlan.t?.time || nextPlan.e?.time}</b>` : ''}`);
+  const hidden = state.settings.hiddenCards || [];
+  const card = (key, cls, title, body, extra = '') => hidden.includes(key) ? '' : `<section class="hm-card ${cls}" data-card="${key}"><div class="hm-card-h"><h2>${title}</h2>${extra}</div>${body}</section>`;
+  const mini = t => { const di = dueLabel(t); return `<div class="task-wrap"><div class="task hm-row st-${stOf(t)}" data-id="${t.id}">${stSlider(t)}
+      <div class="grow hm-row-main" data-act="open" data-id="${t.id}"><span class="hm-row-t">${t.priority < 4 ? `<span class="pflag">${flagIcon(t.priority, 12)}</span>` : ''}${esc(t.title)}</span><span class="hm-row-m">${di ? `<span class="due-txt ${di.cls}">${di.label}</span> · ` : ''}${esc(projName(proj(t.projectId)))}</span></div>
+      ${t.assignees.filter(a => a !== me()).length ? avatars(t.assignees.filter(a => a !== me()), 20, 2) : ''}</div></div>`; };
+  const go = (v, t = 'Pokaż wszystko') => `<button class="hm-link" data-act="nav" data-view="${v}">${t} ${sz(I.right, 13)}</button>`;
+  let html = `<div class="home">
+  <section class="hm-hero2">
+    <div class="hm-h-top"><div><h1>${greet}${name ? `, ${esc(name)}` : ''}</h1><p class="hm-date">${dateLong(td)}${team.ws ? ` · ${esc(team.ws.name)}` : ''}</p></div>
+      <div class="hm-stats">
+        <button data-act="nav" data-view="mine" class="y"><b>${mProg.length}</b><span>w trakcie</span></button>
+        <button data-act="nav" data-view="mine"><b>${mToday.length}</b><span>na dziś</span></button>
+        <button data-act="nav" data-view="mine" class="${mOver.length ? 'r' : ''}"><b>${mOver.length}</b><span>po terminie</span></button>
+        <button data-act="nav" data-view="team" class="g"><b>${doneToday}</b><span>ukończone</span></button>
+      </div></div>
+    <p class="hm-sum">${parts.join(' · ')}.</p>
+    <label class="hm-qa">${I.plus}<input class="home-add" placeholder="Dodaj zadanie… np. „Oferta dla klienta jutro 15:00 +Ania p1”" autocomplete="off" spellcheck="false" aria-label="Dodaj zadanie"><kbd>Enter</kbd></label>
+    <div class="hm-qa-prev"></div>
+  </section>`;
+  if (!team.ws && auth.ready) html += `<section class="hm-card hm-warn"><div class="hm-card-h"><h2>${sz(I.team, 16)} Nie jesteś jeszcze w zespole</h2></div><p class="muted">Utwórz zespół albo dołącz kodem zaproszenia, by widzieć wspólne zadania.</p><button class="btn primary" data-act="ob-open">Utwórz lub dołącz</button></section>`;
+  if (team.ws && !DEMO && pushState() === 'off') html += `<section class="hm-card hm-push"><div class="hm-card-h"><h2>${sz(I.bell, 16)} Włącz powiadomienia</h2></div><p class="muted">Dowiesz się od razu, gdy ktoś przypisze Ci zadanie lub zbliża się termin – także przy zamkniętej aplikacji.</p><button class="btn primary" data-act="push-on">Włącz powiadomienia</button></section>`;
+  html += '<div class="hm-grid">';
+  html += card('today', 'hm-focus2', `${sz(todayIcon(), 16)} Moje na dziś <span class="hm-cnt">${focus.length}</span>`,
+    `${mOver.length ? `<button class="hm-od" data-act="mine-today">${sz(I.calBig, 15)} ${mOver.length} po terminie – przełóż na dziś</button>` : ''}
+    <div class="hm-list">${focus.slice(0, 8).map(mini).join('') || `<div class="hm-empty sm">${sz(I.done, 22)}<span>Wszystko na dziś zrobione – brawo!</span></div>`}</div>
+    ${focus.length > 8 ? go('mine', `Pokaż wszystkie (${focus.length})`) : ''}`, go('mine', 'Moje zadania'));
+  html += card('plan', 'hm-plan', `${sz(I.calMonth, 16)} Mój plan dnia <span class="hm-cnt">${plan.length}</span>`,
+    plan.length ? `<div class="pl-list sm">${plan.map(planRow).join('')}</div>` : `<div class="hm-empty sm">${sz(I.calMonth, 22)}<span>Brak spotkań dziś.</span></div>`, go('calendar', 'Kalendarz'));
+  const evN = {}; myEvents(7).forEach(t => { evN[t.title] = (evN[t.title] || 0) + 1; });
+  const soon = [...mine.filter(t => t.due && t.due > td && t.due <= addDays(td, 7)), ...myEvents(7).filter(t => t.due > td && evN[t.title] < 3)].sort(byDue).slice(0, 7);
+  html += card('next', 'hm-next2', `${sz(I.upcoming, 16)} Najbliższe 7 dni`, soon.map(t => { const n = diffDays(t.due, td); return `<button class="hm-dl" data-act="open" data-id="${t.id}"><span class="hm-dl-n">${n === 1 ? 'jutro' : PL_DAYS_SHORT[dow(t.due)] + ' ' + parseDate(t.due).getDate()}</span><span class="grow">${t.kind === 'event' ? `<span class="ev-ic">${sz(I.calBig, 13)}</span>` : ''}${esc(t.title)}</span><span class="muted small">${t.time || ''}</span></button>`; }).join('') || '<div class="muted small" style="padding:6px 2px">Nic zaplanowanego na najbliższy tydzień.</div>', go('upcoming', 'Nadchodzące'));
+  html += card('team', 'hm-team', `${sz(I.team, 16)} Zespół`, team.members.length ? `<div class="hm-tm">${team.members.map(m => { const ts = all.filter(t => t.assignees.includes(m.user_id)), p = ts.filter(t => stOf(t) === 1).length, od = ts.filter(t => t.due && t.due < td).length, tdy = ts.filter(t => t.due === td).length; return `<button class="hm-tm-r" data-act="person" data-uid="${m.user_id}">${avatar(m.user_id, 28)}<span class="grow"><b>${esc(memberName(m.user_id))}</b><span class="hm-tm-s">${ts.length} otwartych${tdy ? ` · ${tdy} na dziś` : ''}</span></span><span class="hm-tm-b">${p ? `<em class="y" title="w trakcie">${p}</em>` : ''}${od ? `<em class="r" title="po terminie">${od}</em>` : ''}</span></button>`; }).join('')}</div>` : '<div class="muted small">Zaproś osoby w Ustawieniach → Zespół.</div>', go('team', 'Tablica zespołu'));
+  html += card('unassigned', 'hm-un', `${sz(I.ban, 16)} Nieprzypisane <span class="hm-cnt">${unassigned.length}</span>`, unassigned.slice(0, 6).map(t => `<div class="hm-un-r"><span class="grow" data-act="open" data-id="${t.id}">${t.priority < 4 ? `<span class="pflag">${flagIcon(t.priority, 12)}</span>` : ''}${esc(t.title)}${t.due ? ` <span class="due-txt ${dueInfo(t.due, t.time).cls}">${dueInfo(t.due, t.time).label}</span>` : ''}</span><button class="btn sm" data-act="assign" data-id="${t.id}">${sz(I.person, 14)} Przypisz</button></div>`).join('') || '<div class="muted small">Wszystkie zadania mają przypisane osoby 👍</div>', unassigned.length > 6 ? go('team', 'Wszystkie') : '');
+  const recent = state.tasks.filter(t => t.completed && t.completedAt && t.kind !== 'event').sort((a, b) => b.completedAt - a.completedAt).slice(0, 6);
+  html += card('done', 'hm-done', `${sz(I.done, 16)} Ostatnio ukończone`, recent.map(t => `<button class="hm-dn" data-act="open" data-id="${t.id}">${t.completedBy ? avatar(t.completedBy, 22) : ''}<span class="grow"><span class="hm-dn-t">${esc(t.title)}</span><span class="muted small">${t.completedBy ? esc(firstName(t.completedBy)) + ' · ' : ''}${fmtDateTime(t.completedAt)}</span></span></button>`).join('') || '<div class="muted small">Jeszcze nic nie ukończono.</div>', go('completed', 'Ukończone'));
+  html += '</div></div>';
+  return html;
+}
+// ---------- Raporty ----------
+function renderReports() {
+  const td = todayStr(), all = openAll(), done = state.tasks.filter(t => t.completed && t.completedAt && t.kind !== 'event');
+  const days = [...Array(14)].map((_, i) => addDays(td, i - 13));
+  const per = days.map(d => done.filter(t => fmtDate(new Date(t.completedAt)) === d).length), max = Math.max(1, ...per);
+  const wk = done.filter(t => t.completedAt > Date.now() - 7 * 864e5);
+  const ontime = wk.filter(t => !t.due || fmtDate(new Date(t.completedAt)) <= t.due).length;
+  const od = all.filter(t => t.due && t.due < td);
+  let html = header('Raporty', { icon: sz(I.pulse, 24), iconCls: 'tile', sub: team.ws ? `${esc(team.ws.name)} · statystyki całego zespołu` : '' });
+  html += `<div class="rep-cards">
+    <div class="rep-card"><div class="v">${all.length}</div><div class="l">Otwarte zadania</div></div>
+    <div class="rep-card"><div class="v" style="color:var(--st1)">${all.filter(t => stOf(t) === 1).length}</div><div class="l">W trakcie</div></div>
+    <div class="rep-card"><div class="v" style="color:var(--due-overdue)">${od.length}</div><div class="l">Po terminie</div></div>
+    <div class="rep-card"><div class="v" style="color:var(--st2)">${wk.length}</div><div class="l">Ukończone w 7 dni</div></div>
+    <div class="rep-card"><div class="v">${wk.length ? Math.round(ontime / wk.length * 100) : 100}%</div><div class="l">Na czas (7 dni)</div></div>
+    <div class="rep-card"><div class="v">${all.filter(t => !t.assignees.length).length}</div><div class="l">Nieprzypisane</div></div>
+  </div>
+  <div class="rep-box"><h3>Ukończone zadania – ostatnie 14 dni</h3>
+    <div class="bars">${per.map((c, i) => `<div class="bar-col"><span class="bar-v">${c || ''}</span><div class="bar ${days[i] === td ? '' : 'low'}" style="height:${c / max * 78}%"></div></div>`).join('')}</div>
+    <div class="bar-l">${days.map(d => `<span>${parseDate(d).getDate()}</span>`).join('')}</div></div>
+  <div class="rep-box" style="margin-top:16px"><h3>Osoby</h3><div class="rep-scroll"><table class="rep-tbl"><tr><th></th><th>Otwarte</th><th>W trakcie</th><th>Po terminie</th><th>Ukończone (7 dni)</th><th>Ukończone (30 dni)</th></tr>
+    ${team.members.map(m => { const u = m.user_id, ts = all.filter(t => t.assignees.includes(u)); return `<tr data-act="person" data-uid="${u}"><td>${avatar(u, 22)} ${esc(memberName(u))}</td><td>${ts.length}</td><td class="y">${ts.filter(t => stOf(t) === 1).length || '–'}</td><td class="r">${ts.filter(t => t.due && t.due < td).length || '–'}</td><td>${wk.filter(t => t.completedBy === u).length || '–'}</td><td>${done.filter(t => t.completedBy === u && t.completedAt > Date.now() - 30 * 864e5).length || '–'}</td></tr>`; }).join('')}
+    </table></div></div>
+  <div class="rep-box" style="margin-top:16px"><h3>Projekty</h3>${[proj('inbox'), ...userProjects()].map(p => {
+    const open = all.filter(t => t.projectId === p.id).length, dn = done.filter(t => t.projectId === p.id).length, pod = od.filter(t => t.projectId === p.id).length;
+    const pc = open + dn ? Math.round(dn / (open + dn) * 100) : 0, col = p.color && p.color !== '#808080' ? p.color : 'var(--muted)';
+    return `<button class="rp-row" data-act="nav" data-view="${p.isInbox ? 'inbox' : 'project'}" ${p.isInbox ? '' : `data-id="${p.id}"`}><span class="rp-n"><span class="hash" style="color:${col}">#</span> ${esc(projName(p))}</span><span class="rp-bar"><i style="--w:${pc}%;--c:${col}"></i></span><span class="rp-v">${pc}%</span><span class="rp-s">${open} otwartych${pod ? ` · <b class="r">${pod} po terminie</b>` : ''}</span></button>`;
+  }).join('')}</div>`;
+  return html;
+}
+function productivity() { setView({ type: 'reports' }); }
+// ---------- menu konta ----------
+function userMenu(anchor) {
+  const th = state.settings.theme;
+  const ck = v => th === v ? I.checkSmall : '<span style="width:16px"></span>';
+  menu(anchor, [
+    { icon: sz(I.gear, 16), label: 'Ustawienia', fn: () => setView({ type: 'prefs' }) },
+    { icon: sz(I.team, 16), label: 'Zespół i zaproszenia', fn: () => { ui.prefTab = 'team'; setView({ type: 'prefs' }); } },
+    { icon: sz(I.bell, 16), label: 'Powiadomienia', fn: () => { ui.prefTab = 'notif'; setView({ type: 'prefs' }); } },
+    '-',
+    { icon: ck('light'), label: 'Motyw jasny', fn: () => { state.settings.theme = 'light'; commit(); } },
+    { icon: ck('dark'), label: 'Motyw ciemny', fn: () => { state.settings.theme = 'dark'; commit(); } },
+    { icon: ck('auto'), label: 'Jak w systemie', fn: () => { state.settings.theme = 'auto'; commit(); } },
+    '-',
+    { icon: sz(I.book, 16), label: 'Poradnik i skróty', fn: () => setView({ type: 'guide' }) },
+    DEMO ? { icon: sz(I.x, 16), label: 'Zakończ demo', fn: exitDemo } : { icon: sz(I.left, 16), label: 'Wyloguj', fn: () => confirmDlg('Wylogować się?', 'Twoje zmiany są zapisane w zespole. Dane zostaną usunięte z tego urządzenia.', 'Wyloguj', signOut) },
+  ]);
+}
+// ================================================================
+//  TRYB DEMO – przykładowa firma z ludźmi, projektami, zadaniami i kalendarzami (bez zapisu na serwer)
+// ================================================================
+function startDemo() {
+  try { sessionStorage.setItem('lt-demo', '1'); } catch (e) { /* */ }
+  DEMO = true;
+  let seedN = 20261126;
+  const rnd = () => { seedN |= 0; seedN = seedN + 0x6D2B79F5 | 0; let t = Math.imul(seedN ^ seedN >>> 15, 1 | seedN); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const pick = a => a[Math.floor(rnd() * a.length)];
+  const td = todayStr(), ME = 'u-ja';
+  CUR_UID = ME;
+  const P = [
+    [ME, 'owner', 'Kamil Nowak', 'kamil@studionova.pl', '#e05194'],
+    ['u-anna', 'admin', 'Anna Kowalska', 'anna@studionova.pl', '#4f8ff7'],
+    ['u-piotr', 'member', 'Piotr Wiśniewski', 'piotr@studionova.pl', '#f5a531'],
+    ['u-marta', 'member', 'Marta Zielińska', 'marta@studionova.pl', '#9466f0'],
+    ['u-tomek', 'member', 'Tomasz Lewandowski', 'tomek@studionova.pl', '#2bb5a3'],
+    ['u-ewa', 'member', 'Ewa Wójcik', 'ewa@studionova.pl', '#ff6f61'],
+    ['u-kuba', 'member', 'Jakub Kamiński', 'kuba@studionova.pl', '#7ecc49'],
+    ['u-ola', 'member', 'Ola Dąbrowska', 'ola@studionova.pl', '#14aaf5'],
+  ];
+  team.members = P.map(([user_id, role, name, email, color]) => ({ user_id, role, name, email, color }));
+  team.ws = { id: 'demo', name: 'Studio Nova (demo)', invite_code: 'demo2026', timezone: 'Europe/Warsaw' };
+  team.list = [team.ws];
+  auth.ready = true;
+  const ids = P.map(p => p[0]), others = ids.filter(i => i !== ME);
+  const sec = n => ({ id: uid(), name: n });
+  const projects = [
+    { id: 'inbox', name: 'Skrzynka', color: '#808080', isInbox: true, view: 'list', order: 0, sections: [] },
+    { id: 'p-bistro', name: 'Strona dla Bistro Zielone', color: '#299438', favorite: true, view: 'board', order: 1, description: 'Nowa strona www z rezerwacjami online. Termin oddania: koniec miesiąca.', sections: [sec('Do zrobienia'), sec('Projekt graficzny'), sec('Programowanie'), sec('Testy i wdrożenie')] },
+    { id: 'p-sprzedaz', name: 'Sprzedaż', color: '#4073ff', favorite: true, view: 'list', order: 2, sections: [sec('Leady'), sec('Oferty'), sec('Umowy')] },
+    { id: 'p-marketing', name: 'Marketing', color: '#af38eb', view: 'list', order: 3, sections: [sec('Social media'), sec('Kampanie'), sec('Treści')] },
+    { id: 'p-biuro', name: 'Biuro i administracja', color: '#ff9933', view: 'list', order: 4, sections: [sec('Finanse'), sec('Kadry'), sec('Sprzęt')] },
+    { id: 'p-rekrutacja', name: 'Rekrutacja', color: '#14aaf5', view: 'list', order: 5, sections: [] },
+    { id: 'p-spotkania', name: 'Spotkania', color: '#884dff', view: 'list', order: 6, description: 'Stałe spotkania zespołu.', sections: [] },
+  ];
+  const labels = [{ id: 'l-pilne', name: 'pilne', color: '#db4035' }, { id: 'l-klient', name: 'klient', color: '#4073ff' }, { id: 'l-wewn', name: 'wewnętrzne', color: '#808080' }, { id: 'l-spotkanie', name: 'spotkanie', color: '#884dff' }];
+  const tasks = [];
+  let ord = 1;
+  const S = (pid, name) => projects.find(p => p.id === pid).sections.find(s => s.name === name)?.id || null;
+  const wd = d => { const w = dow(d); return w === 6 ? addDays(d, 2) : w === 0 ? addDays(d, 1) : d; };
+  const T = o => {
+    if (o.due) { const nd = wd(o.due); if (o.endDue) o.endDue = addDays(o.endDue, diffDays(nd, o.due)); o.due = nd; }
+    const t = newTask(Object.assign({ order: ord++, createdBy: pick(ids), createdAt: Date.now() - Math.floor(rnd() * 20) * 864e5 }, o));
+    if (t.due && t.due < td && o.status === undefined && !o.completed) { const r = rnd(); if (r < .8) { t.completed = true; t.status = 2; } else if (r < .9) t.status = 1; }
+    if (t.completed) { t.status = 2; t.completedAt = parseDate(t.due || td).getTime() + (9 + Math.floor(rnd() * 8)) * 36e5; t.completedBy = t.assignees[0] || ME; }
+    normTask(t); tasks.push(t); return t;
+  };
+  const C = (t, by, text, h = 2) => t.comments.push({ id: uid(), by, text, at: Date.now() - h * 36e5 });
+  // codzienne stand-upy i stałe spotkania
+  for (let i = -14; i <= 28; i++) {
+    const d = addDays(td, i), w = dow(d);
+    if (w === 0 || w === 6) continue;
+    T({ title: 'Poranny stand-up', kind: 'event', due: d, time: '09:00', endTime: '09:15', assignees: [...ids], projectId: 'p-spotkania', labels: ['l-spotkanie'], location: 'Google Meet', remind: 5 });
+    if (w === 1) T({ title: 'Planowanie tygodnia', kind: 'event', due: d, time: '10:00', endTime: '11:00', assignees: [ME, 'u-anna', 'u-piotr', 'u-tomek'], projectId: 'p-spotkania', labels: ['l-spotkanie'], location: 'Sala konferencyjna', priority: 2 });
+    if (w === 5) T({ title: 'Podsumowanie tygodnia', kind: 'event', due: d, time: '15:00', endTime: '15:45', assignees: [...ids], projectId: 'p-spotkania', labels: ['l-spotkanie'], location: 'Sala konferencyjna' });
+    if (w === 3) T({ title: 'Spotkanie 1:1 z Anną', kind: 'event', due: d, time: '13:00', endTime: '13:30', assignees: [ME, 'u-anna'], projectId: 'p-spotkania' });
+  }
+  // projekt Bistro – spójna historia
+  const B = (title, sec, o) => T(Object.assign({ title, projectId: 'p-bistro', sectionId: S('p-bistro', sec), labels: ['l-klient'] }, o));
+  B('Warsztat z klientem – wymagania', 'Do zrobienia', { kind: 'event', due: addDays(td, -9), time: '11:00', endTime: '13:00', assignees: [ME, 'u-anna', 'u-marta'], location: 'Bistro Zielone, ul. Polna 12', completed: true });
+  B('Makiety stron (wireframe)', 'Projekt graficzny', { due: addDays(td, -5), assignees: ['u-marta'], priority: 2, completed: true });
+  B('Projekt graficzny strony głównej', 'Projekt graficzny', { due: addDays(td, 1), time: '12:00', assignees: ['u-marta'], priority: 1, status: 1, description: 'Wersja jasna + ciemna. Zdjęcia od klienta są w folderze „Bistro/zdjęcia”.' });
+  B('Akceptacja projektu przez klienta', 'Projekt graficzny', { kind: 'event', due: addDays(td, 3), time: '14:00', endTime: '15:00', assignees: [ME, 'u-marta', 'u-anna'], location: 'Online – Teams', priority: 1 });
+  B('Szablon HTML/CSS', 'Programowanie', { due: addDays(td, 6), assignees: ['u-tomek'], priority: 2 });
+  B('Moduł rezerwacji stolików', 'Programowanie', { due: addDays(td, 10), assignees: ['u-tomek'], priority: 1, description: 'Integracja z kalendarzem restauracji, potwierdzenie SMS.' });
+  B('Menu online z cenami', 'Programowanie', { due: addDays(td, 12), assignees: ['u-tomek', 'u-ola'] });
+  B('Teksty na stronę (o nas, kontakt)', 'Do zrobienia', { due: addDays(td, 2), assignees: ['u-kuba'], priority: 3, status: 1 });
+  B('Testy na telefonach', 'Testy i wdrożenie', { due: addDays(td, 16), assignees: ['u-ola', 'u-tomek'] });
+  B('Wdrożenie strony i szkolenie klienta', 'Testy i wdrożenie', { kind: 'event', due: addDays(td, 19), time: '10:00', endTime: '12:00', assignees: [ME, 'u-tomek'], location: 'Bistro Zielone', priority: 1 });
+  const bo = tasks.find(t => t.title === 'Projekt graficzny strony głównej');
+  C(bo, 'u-anna', 'Klient prosi o więcej zieleni w nagłówku 🌿', 20); C(bo, 'u-marta', 'Jasne, poprawię do jutra i wrzucę podgląd.', 18); C(bo, ME, 'Super, dzięki!', 3);
+  // sprzedaż
+  const clients = ['Hotel Mazury', 'Piekarnia Kłos', 'AutoSerwis Max', 'Kancelaria Lex', 'Fitness Pro', 'Ogrody Wolscy', 'Dental Smile', 'Księgarnia Strona'];
+  clients.forEach((c, i) => {
+    const d = addDays(td, -10 + i * 3 + Math.floor(rnd() * 2));
+    T({ title: `Telefon do ${c} – pierwsza rozmowa`, projectId: 'p-sprzedaz', sectionId: S('p-sprzedaz', 'Leady'), due: d, time: pick(['09:30', '10:30', '11:30', '14:00', '15:30']), endTime: null, assignees: ['u-piotr'], priority: 3 });
+    T({ title: `Oferta dla ${c}`, projectId: 'p-sprzedaz', sectionId: S('p-sprzedaz', 'Oferty'), due: addDays(d, 2), assignees: [pick(['u-piotr', ME])], priority: pick([1, 2, 2, 3]), labels: ['l-klient'] });
+    if (i % 2 === 0) T({ title: `Spotkanie z ${c}`, kind: 'event', projectId: 'p-sprzedaz', sectionId: S('p-sprzedaz', 'Umowy'), due: addDays(d, 5), time: pick(['10:00', '12:00', '14:00']), endTime: null, assignees: ['u-piotr', ME], location: pick(['U klienta', 'Biuro', 'Online – Meet']), labels: ['l-klient', 'l-spotkanie'] });
+  });
+  tasks.filter(t => t.kind === 'event' && !t.endTime && t.time).forEach(t => { t.endTime = addMin(t.time, 60); });
+  T({ title: 'Podpisać umowę z Hotel Mazury', projectId: 'p-sprzedaz', sectionId: S('p-sprzedaz', 'Umowy'), due: td, time: '16:00', assignees: [ME], priority: 1, labels: ['l-pilne', 'l-klient'] });
+  T({ title: 'Raport sprzedaży za miesiąc', projectId: 'p-sprzedaz', due: addDays(td, 4), assignees: ['u-piotr', 'u-ewa'], priority: 2 });
+  // marketing
+  ['Post: realizacja dla Bistro', 'Post: zespół od kuchni', 'Rolka: 60 sekund z życia biura', 'Post: porady SEO dla małych firm', 'Karuzela: przed i po', 'Post: opinia klienta'].forEach((x, i) =>
+    T({ title: x, projectId: 'p-marketing', sectionId: S('p-marketing', 'Social media'), due: addDays(td, -6 + i * 3), time: '12:00', assignees: ['u-kuba'], priority: 3 }));
+  T({ title: 'Kampania Google Ads – zimowa promocja', projectId: 'p-marketing', sectionId: S('p-marketing', 'Kampanie'), due: addDays(td, 5), endDue: addDays(td, 8), assignees: ['u-kuba', 'u-piotr'], priority: 2, status: 1, description: 'Budżet 3000 zł, grupa docelowa: firmy lokalne.' });
+  T({ title: 'Newsletter grudniowy', projectId: 'p-marketing', sectionId: S('p-marketing', 'Treści'), due: addDays(td, 7), assignees: ['u-kuba', 'u-marta'] });
+  T({ title: 'Sesja zdjęciowa zespołu', kind: 'event', projectId: 'p-marketing', due: addDays(td, 9), time: '13:00', endTime: '16:00', assignees: [...ids], location: 'Studio foto, ul. Jasna 4' });
+  T({ title: 'Artykuł na bloga: jak wybrać stronę www', projectId: 'p-marketing', sectionId: S('p-marketing', 'Treści'), due: addDays(td, -1), assignees: ['u-kuba'], priority: 3, status: 1 });
+  // biuro
+  T({ title: 'Wysłać faktury za listopad', projectId: 'p-biuro', sectionId: S('p-biuro', 'Finanse'), due: addDays(td, -2), assignees: ['u-ewa'], priority: 1, labels: ['l-pilne'], status: 0 });
+  T({ title: 'Przelew ZUS i podatki', projectId: 'p-biuro', sectionId: S('p-biuro', 'Finanse'), due: addDays(td, 8), time: '10:00', assignees: ['u-ewa'], priority: 1, recurring: 'monthly' });
+  T({ title: 'Rozliczenie delegacji Piotra', projectId: 'p-biuro', sectionId: S('p-biuro', 'Finanse'), due: td, assignees: ['u-ewa'], priority: 3 });
+  T({ title: 'Umówić badania okresowe', projectId: 'p-biuro', sectionId: S('p-biuro', 'Kadry'), due: addDays(td, 3), assignees: ['u-anna'], priority: 3 });
+  T({ title: 'Zamówić nowe laptopy (2 szt.)', projectId: 'p-biuro', sectionId: S('p-biuro', 'Sprzęt'), due: addDays(td, 1), assignees: ['u-tomek', 'u-ewa'], priority: 2, status: 1 });
+  T({ title: 'Kupić kawę i herbatę do biura', projectId: 'p-biuro', due: td, assignees: ['u-ola'], priority: 4 });
+  T({ title: 'Przegląd klimatyzacji', kind: 'event', projectId: 'p-biuro', due: addDays(td, 2), time: '08:00', endTime: '09:00', assignees: ['u-ola'], location: 'Biuro' });
+  T({ title: 'Wigilia firmowa', kind: 'event', projectId: 'p-biuro', due: addDays(td, 22), time: '17:00', endTime: '21:00', assignees: [...ids], location: 'Restauracja Bistro Zielone', priority: 2 });
+  // rekrutacja
+  ['Kandydat: Paweł N. (frontend)', 'Kandydatka: Julia S. (grafik)', 'Kandydat: Adam K. (frontend)'].forEach((x, i) =>
+    T({ title: 'Rozmowa – ' + x.split(': ')[1], kind: 'event', projectId: 'p-rekrutacja', due: addDays(td, 1 + i * 2), time: pick(['11:00', '14:00']), endTime: null, assignees: ['u-anna', i === 1 ? 'u-marta' : 'u-tomek'], location: 'Sala 2' }));
+  tasks.filter(t => t.kind === 'event' && !t.endTime && t.time).forEach(t => { t.endTime = addMin(t.time, 45); });
+  T({ title: 'Opublikować ogłoszenie: Junior frontend developer', projectId: 'p-rekrutacja', due: addDays(td, -4), assignees: ['u-anna'], completed: true });
+  T({ title: 'Przygotować zadanie rekrutacyjne', projectId: 'p-rekrutacja', due: addDays(td, -1), assignees: ['u-tomek'], priority: 2 });
+  // skrzynka – nieprzypisane pomysły
+  ['Pomysł: program poleceń dla klientów', 'Odświeżyć portfolio na stronie', 'Sprawdzić oferty ubezpieczenia sprzętu', 'Szkolenie z Figmy dla zespołu'].forEach(x => T({ title: x, projectId: 'inbox', assignees: [] }));
+  T({ title: 'Zgłoszenie od klienta: nie działa formularz', projectId: 'inbox', due: td, time: '11:00', assignees: [], priority: 1, labels: ['l-pilne', 'l-klient'] });
+  // moje zadania na dziś
+  T({ title: 'Przejrzeć i zatwierdzić ofertę dla Piekarni Kłos', projectId: 'p-sprzedaz', due: td, time: '10:30', endTime: '11:00', assignees: [ME], priority: 2, status: 1 });
+  T({ title: 'Odpisać na maile od klientów', projectId: 'inbox', due: td, assignees: [ME], priority: 3 });
+  T({ title: 'Ustalić budżet na I kwartał', projectId: 'p-biuro', sectionId: S('p-biuro', 'Finanse'), due: addDays(td, 2), time: '14:00', endTime: '15:30', assignees: [ME, 'u-ewa', 'u-anna'], priority: 1 });
+  state = normalizeState({ projects, labels, tasks, filters: [], history: tasks.filter(t => t.completedAt).map(t => ({ id: t.id, title: t.title, at: t.completedAt, projectId: t.projectId, priority: t.priority })), settings: Object.assign({}, state.settings, { userName: 'Kamil Nowak', who: 'all' }) });
+  // kalendarze Google (przykładowe)
+  const ev = (title, date, o = {}) => Object.assign({ id: uid(), title, date, end: null, time: '', endTime: '', allDay: !o.time, location: '', link: '' }, o);
+  team.cals = [
+    { id: 'c-team', scope: 'team', name: 'Firma – urlopy i święta', color: '#ff8d85', owner_id: 'u-anna' },
+    { id: 'c-me', scope: 'personal', name: 'Mój prywatny', color: '#6accbc', owner_id: ME },
+  ];
+  team.ev = {
+    'c-team': { at: Date.now(), events: [
+      ev('Urlop: Marta', addDays(td, 4), { end: addDays(td, 7) }), ev('Urlop: Piotr', addDays(td, 13), { end: addDays(td, 18) }),
+      ev('Home office: Tomek', addDays(td, 1)), ev('Szkolenie BHP (cały zespół)', addDays(td, 11), { time: '08:00', endTime: '10:00', allDay: false, location: 'Sala konferencyjna' }),
+      ev('Inwentaryzacja', addDays(td, 25)), ev('Dzień otwarty biura', addDays(td, 15)),
+    ] },
+    'c-me': { at: Date.now(), events: [
+      ev('Dentysta', addDays(td, 1), { time: '07:30', endTime: '08:15', allDay: false }), ev('Siłownia', td, { time: '18:00', endTime: '19:00', allDay: false }),
+      ev('Siłownia', addDays(td, 2), { time: '18:00', endTime: '19:00', allDay: false }), ev('Urodziny mamy 🎂', addDays(td, 6)),
+      ev('Odebrać auto z serwisu', addDays(td, 3), { time: '16:30', endTime: '17:00', allDay: false }),
+    ] },
+  };
+  team.notifs = [
+    { id: 1, kind: 'assigned', actor_id: 'u-anna', task_id: tasks.find(t => t.title.startsWith('Ustalić budżet')).id, title: 'Ustalić budżet na I kwartał', body: 'Anna Kowalska przypisała Ci zadanie', created_at: new Date(Date.now() - 36e5).toISOString(), read: false },
+    { id: 2, kind: 'comment', actor_id: 'u-marta', task_id: bo.id, title: bo.title, body: 'Marta Zielińska: Jasne, poprawię do jutra i wrzucę podgląd.', created_at: new Date(Date.now() - 18 * 36e5).toISOString(), read: false },
+    { id: 3, kind: 'done', actor_id: 'u-marta', task_id: tasks.find(t => t.title.startsWith('Makiety')).id, title: 'Makiety stron (wireframe)', body: 'Marta Zielińska ukończyła 🟢', created_at: new Date(Date.now() - 3 * 864e5).toISOString(), read: true },
+  ];
+  setSync('synced');
+  hideAuth();
+  ui.view = location.hash === '#demo' || !location.hash ? { type: 'home' } : hashView();
+  ui.stagger = true;
+  render();
+}
+function exitDemo() {
+  try { sessionStorage.removeItem('lt-demo'); } catch (e) { /* */ }
+  location.href = location.pathname + '#home';
+  location.reload();
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-act="demo-exit"]')) exitDemo();
+  if (e.target.closest('[data-act="demo-start"]')) { try { sessionStorage.setItem('lt-demo', '1'); } catch (er) { /* */ } location.reload(); }
+});
 // narzędzie do testów lokalnych (tylko na localhost)
 if (location.hostname === 'localhost') window.__lt = { get state() { return state; }, team, ui, render: () => render(), newTask, uid, todayStr, addDays, parseQuick, parseICS };
 render();
 save();
-initSync();
+if (DEMO) startDemo(); else initSync();
 requestAnimationFrame(() => requestAnimationFrame(() => $('#app').classList.add('ready')));
 })();
