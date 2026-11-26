@@ -21,11 +21,11 @@ const COLORS = [
 ];
 // ustawienia – obecny wygląd i zachowanie to wartości domyślne
 const PREF_DEFAULTS = {
-  startView: 'tasks', density: 'normal', scale: 100, anim: 'full', splash: false, confetti: false, navColors: true, showDesc: false,
+  startView: 'my', density: 'normal', scale: 100, anim: 'full', splash: false, confetti: false, navColors: true, showDesc: false,
   hiddenNav: [], hiddenCards: [], voiceAuto: false, hoverFx: false,
   navOrder: [], cardOrder: [], tileEdit: false, navCounts: true, gcalCal: true, gcalUp: true, gcalToday: true, calWeekNums: false, calHidden: [], who: 'me', calStartHour: 7,
 };
-const PREF_FALSE = ['voiceAuto', 'tileEdit', 'calWeekNums'];   // przełączniki domyślnie wyłączone
+const PREF_FALSE = ['voiceAuto', 'tileEdit', 'calWeekNums', 'calFullDay', 'calWork', 'bigSlider'];   // przełączniki domyślnie wyłączone
 const PREF_REDRAW = ['tileEdit', 'gcalCal', 'gcalUp', 'gcalToday', 'calWeekNums'];
 const REC_OPTS =[['', 'Nie powtarzaj'], ['daily', 'Codziennie'], ['weekdays', 'W dni robocze'], ['weekly', 'Co tydzień'], ['monthly', 'Co miesiąc'], ['yearly', 'Co rok']];
 const REC_LABEL = Object.fromEntries(REC_OPTS);
@@ -404,7 +404,7 @@ function hashView() {
   const h = decodeURIComponent(location.hash.slice(1));
   const i = h.search(/[-/]/);
   const type = i < 0 ? h : h.slice(0, i), id = i < 0 ? '' : h.slice(i + 1);
-  if (['tasks', 'projects', 'home', 'today', 'upcoming', 'inbox', 'filters', 'completed', 'search', 'reports', 'calendar', 'prefs', 'guide', 'mine', 'team'].includes(type)) return { type };
+  if (['tasks', 'projects', 'home', 'today', 'upcoming', 'inbox', 'filters', 'completed', 'search', 'reports', 'calendar', 'prefs', 'guide', 'mine', 'team', 'my', 'archive'].includes(type)) return { type };
   if (type === 'person' && id) return { type, id };
   if (type === 'project' && proj(id)) return id === 'inbox' ? { type: 'inbox' } : { type, id };
   if (type === 'label' && label(id)) return { type, id };
@@ -520,12 +520,16 @@ function renderMain() {
   const prevScroll = $('.content', main)?.scrollTop || 0;
   let body = '', wide = false;
   let v = ui.view;
-  const TMAP = { home: 'today', today: 'today', mine: 'all', upcoming: 'upcoming', completed: 'done' };
+  const TMAP = { today: 'today', mine: 'all', upcoming: 'upcoming' };
+  if (v.type === 'home') { ui.view = v = { type: 'my' }; try { history.replaceState(null, '', '#my'); } catch (e) { /* */ } }
+  if (v.type === 'completed') { ui.view = v = { type: 'archive' }; try { history.replaceState(null, '', '#archive'); } catch (e) { /* */ } }
   if (TMAP[v.type]) { ui.taskTab = TMAP[v.type]; if (v.type === 'mine') state.settings.who = 'me'; ui.view = v = { type: 'tasks' }; try { history.replaceState(null, '', '#tasks'); } catch (e) { /* */ } }
   ui.bar = { title: '', icon: '', crumb: '', right: '' };
   ui.rowIdx = 0;
   switch (v.type) {
     case 'tasks': body = renderTasks(); break;
+    case 'my': body = renderMy(); wide = true; break;
+    case 'archive': body = renderArchive(); break;
     case 'projects': body = renderProjects(); wide = true; break;
     case 'prefs': body = renderPrefs(); break;
     case 'guide': body = renderGuide(); wide = true; break;
@@ -3086,7 +3090,7 @@ const firstName = id => memberName(id).split(/\s+/)[0];
 const memberColor = id => member(id)?.color || MCOL[hashStr(id) % MCOL.length];
 const initials = id => { const n = memberName(id).replace(/\(.*?\)/g, '').replace(/[^\p{L}\s]/gu, '').trim().split(/\s+/).filter(Boolean); return ((n[0] || '?')[0] + (n[1] ? n[1][0] : '')).toUpperCase(); };
 const avatar = (id, s = 22) => `<span class="av" style="--c:${memberColor(id)};--s:${s}px" title="${esc(memberName(id))}">${esc(initials(id))}</span>`;
-const avatars = (ids, s = 20, max = 3) => `<span class="avs">${ids.slice(0, max).map(i => avatar(i, s)).join('')}${ids.length > max ? `<span class="av more" style="--s:${s}px">+${ids.length - max}</span>` : ''}</span>`;
+const avatars = (ids, s = 20, max = 3) => `<span class="avs">${ids.slice(0, max).map(i => avatar(i, s)).join('')}${ids.length > max ? `<span class="av more" style="--s:${s}px" title="${esc(ids.slice(max).map(memberName).join(', '))}">+${ids.length - max}</span>` : ''}</span>`;
 const isAdmin = () => ['owner', 'admin'].includes(member(me())?.role);
 const mentionKey = id => fold(firstName(id)).replace(/[^a-z0-9]/g, '') || 'osoba';
 function findMember(n) {
@@ -3874,7 +3878,8 @@ function renderTeam() {
   let html = header('Zespół', { icon: sz(I.team, 24), iconCls: 'tile',
     sub: `${team.members.length} ${plural(team.members.length, 'osoba', 'osoby', 'osób')} · ${all.length} otwartych zadań · ${all.filter(t => !t.assignees.length).length} nieprzypisanych`,
     right: `<div class="seg-inline"><button class="${mode === 'board' ? 'sel' : ''}" data-act="team-mode" data-v="board">Tablica</button><button class="${mode === 'load' ? 'sel' : ''}" data-act="team-mode" data-v="load">Obciążenie</button></div>
-      <button class="btn" data-act="pref-open" data-t="team">${sz(I.share, 15)} Zaproś</button>` });
+      <button class="btn" data-act="pref-open" data-t="team">${sz(I.share, 15)} Zaproś</button>`,
+    after: mode === 'board' && team.members.length > 2 ? `<div class="who-row team-jump"><span class="muted small">Przejdź do:</span>${[...team.members.map(m => m.user_id), '_none'].map(u => `<button class="cp-chip" data-act="team-jump" data-uid="${u}" style="--c:${u === '_none' ? 'var(--accent)' : memberColor(u)}">${u === '_none' ? '<span class="av none" style="--s:20px">?</span>' : avatar(u, 20)}<span>${u === '_none' ? 'Nieprzypisane' : esc(firstName(u))}</span></button>`).join('')}</div>` : '' });
   if (!team.ws) return html + emptyState('Brak zespołu', 'Zaloguj się i utwórz zespół lub dołącz do niego kodem zaproszenia.');
   if (mode === 'load') {
     const days = [...Array(14)].map((_, i) => addDays(td, i));
@@ -3886,6 +3891,7 @@ function renderTeam() {
   }
   html += `<div class="board team-board">${cols.map(u => {
     const ts = all.filter(t => u === '_none' ? !t.assignees.length : t.assignees.includes(u)).sort(byStatusDue);
+    const hang = u === '_none' ? [] : keptDone(t => t.assignees.includes(u));
     const prog = ts.filter(t => stOf(t) === 1).length, od = ts.filter(t => t.due && t.due < td).length;
     const m = member(u);
     return `<div class="board-col team-col" data-drop="person" data-uid="${u}">
@@ -3893,7 +3899,7 @@ function renderTeam() {
         : `<button class="tc-who" data-act="person" data-uid="${u}">${avatar(u, 30)}<div class="grow"><h3>${esc(memberName(u))}${u === me() ? ' <span class="muted small">(Ty)</span>' : ''}</h3><span class="muted small">${m?.role === 'owner' ? 'właściciel' : m?.role === 'admin' ? 'administrator' : 'członek'}</span></div></button>`}
         <span class="count">${ts.length}</span></div>
       <div class="tc-stats">${prog ? `<span class="ins yellow"><b>${prog}</b> w trakcie</span>` : ''}${od ? `<span class="ins red"><b>${od}</b> po terminie</span>` : ''}</div>
-      <div class="col-body">${ts.map(t => taskRow(t, { showProject: true, exceptUid: u === '_none' ? null : u })).join('')}${addTaskButton('team:' + u, { assignees: u === '_none' ? [] : [u] })}</div></div>`;
+      <div class="col-body">${ts.map(t => taskRow(t, { showProject: true, exceptUid: u === '_none' ? null : u })).join('')}${hang.map(t => taskRow(t, { showProject: true, exceptUid: u, noDrag: true })).join('')}${addTaskButton('team:' + u, { assignees: u === '_none' ? [] : [u] })}</div></div>`;
   }).join('')}</div>`;
   return html;
 }
@@ -3923,7 +3929,7 @@ function homeAdd(text) {
 // ---------- Raportowanie zespołu ----------
 
 // ---------- powiadomienia w aplikacji ----------
-const NOTIF_ICON = { assigned: '👤', status: '🔄', reminder: '⏰', comment: '💬', done: '✅' };
+const NOTIF_ICON = { assigned: '👤', status: '🔄', reminder: '⏰', comment: '💬', done: '✅', overdue: '⚠️', nudge: '👋', test: '🔔' };
 async function loadNotifs() {
   const { data } = await auth.sb.from('ws_notifications').select('*').eq('user_id', me()).order('created_at', { ascending: false }).limit(60);
   team.notifs = data || [];
@@ -4130,7 +4136,10 @@ function gcalEventsOn(d, where) {
 //  Kalendarz: miesiąc, tydzień, dzień, zespół (kolumna na osobę), lista
 // ================================================================
 const CAL_MODES = [['month', 'Miesiąc'], ['week', 'Tydzień'], ['day', 'Dzień'], ['team', 'Zespół'], ['agenda', 'Lista']];
-const HH = () => isNarrow() ? 44 : 52; // wysokość godziny w px
+// zakres godzin w siatce (ustawienia) i wysokość godziny dopasowana do ekranu
+const tgRange = () => { const s = state.settings; if (s.calFullDay) return [0, 24]; let a = s.calStartHour ?? 7, b = s.calEndHour ?? 20; a = Math.max(0, Math.min(23, a)); b = Math.max(a + 1, Math.min(24, b)); return [a, b]; };
+const tgOff = () => tgRange()[0] * 60;
+const HH = () => { const [a, b] = tgRange(), n = b - a, min = isNarrow() ? 44 : 50; if (n >= 20) return min; const avail = innerHeight - (isNarrow() ? 330 : 300); return Math.max(min, Math.min(isNarrow() ? 72 : 92, Math.floor(avail / n))); };
 function itemColor(t) {
   const by = state.settings.calColorBy || 'person';
   if (by === 'prio') return t.priority < 4 ? `var(--p${t.priority})` : 'var(--accent)';
@@ -4171,7 +4180,8 @@ function tgAllDay(d, uidCol) {
     ...ts.map(t => `<div class="cal2-chip st-${stOf(t)} ${t.completed ? 'done' : ''}" draggable="true" data-act="open" data-id="${t.id}" style="--c:${itemColor(t)}" title="${esc(t.title)}"><i></i><span>${esc(t.title)}</span></div>`)].join('');
 }
 function tgBlockHtml(b, hh) {
-  const top = b.s / 60 * hh, h = Math.max(18, (b.e - b.s) / 60 * hh - 2), w = 100 / b.lanes, left = b.lane * w;
+  const [r0, r1] = tgRange(), bs = Math.max(b.s, r0 * 60), be = Math.min(Math.max(b.e, bs + 20), r1 * 60), clip = b.s < r0 * 60 || b.e > r1 * 60;
+  const top = Math.min(bs - r0 * 60, (r1 - r0) * 60 - 20) / 60 * hh, h = Math.max(18, (Math.max(be, bs + 20) - bs) / 60 * hh - 2), w = 100 / b.lanes, left = b.lane * w;
   const short = h < 34;
   if (b.ev) {
     const e = b.ev;
@@ -4179,21 +4189,22 @@ function tgBlockHtml(b, hh) {
       <b>${esc(e.title)}</b><span>${e.time}–${e.endTime}${e.location ? ' · ' + esc(e.location) : ''}</span></a>`;
   }
   const t = b.t;
-  return `<div class="tg-ev st-${stOf(t)} ${t.kind === 'event' ? 'is-event' : 'is-task'} ${t.completed && t.kind !== 'event' ? 'done' : ''} ${pastEvent(t) ? 'past' : ''} ${short ? 'short' : ''}" data-tgid="${t.id}" style="top:${top}px;height:${h}px;left:calc(${left}% + 2px);width:calc(${w}% - 4px);--c:${itemColor(t)}" title="${esc(t.title)} · ${timeRange(t)}${t.assignees.length ? ' · ' + esc(t.assignees.map(memberName).join(', ')) : ''}">
+  return `<div class="tg-ev st-${stOf(t)} ${clip ? 'clip' : ''} ${t.kind === 'event' ? 'is-event' : 'is-task'} ${t.completed && t.kind !== 'event' ? 'done' : ''} ${pastEvent(t) ? 'past' : ''} ${short ? 'short' : ''}" data-tgid="${t.id}" style="top:${top}px;height:${h}px;left:calc(${left}% + 2px);width:calc(${w}% - 4px);--c:${itemColor(t)}" title="${esc(t.title)} · ${timeRange(t)}${t.assignees.length ? ' · ' + esc(t.assignees.map(memberName).join(', ')) : ''}">
     <b>${t.kind === 'task' ? `<span class="tg-st s${stOf(t)}"></span>` : ''}${esc(t.title)}</b><span>${timeRange(t)}${t.location ? ' · ' + esc(t.location) : ''}</span>
     ${t.assignees.length && !short ? `<span class="tg-avs">${avatars(t.assignees, 16, 3)}</span>` : ''}<i class="tg-rs" title="Zmień czas trwania"></i></div>`;
 }
 function timeGrid(cols) {
   const hh = HH(), td = todayStr(), now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes();
-  const hours = [...Array(24)].map((_, h) => `<div class="tg-hl" style="top:${h * hh}px"><span>${h ? pad(h) + ':00' : ''}</span></div>`).join('');
+  const [r0, r1] = tgRange(), nh = r1 - r0;
+  const hours = [...Array(nh)].map((_, i) => `<div class="tg-hl" style="top:${i * hh}px"><span>${i ? pad(r0 + i) + ':00' : ''}</span></div>`).join('');
   return `<div class="tg" style="--hh:${hh}px;--n:${cols.length}">
-    <div class="tg-head"><div class="tg-gut"></div>${cols.map(c => `<div class="tg-dh ${c.date === td && !c.uid ? 'today' : ''}" ${c.uid ? '' : `data-act="cal-goday" data-date="${c.date}"`}>${c.head}</div>`).join('')}</div>
+    <div class="tg-head"><div class="tg-gut"></div>${cols.map(c => { const n = c.uid ? 0 : calTasks(c.date).length + gcalEventsOn(c.date, 'gcalCal').length; return `<div class="tg-dh ${c.date === td && !c.uid ? 'today' : ''}" ${c.uid ? '' : `data-act="cal-dayopen" data-date="${c.date}" title="Pokaż szczegóły dnia"`}>${c.head}${n ? `<em class="tg-dn">${n}</em>` : ''}</div>`; }).join('')}</div>
     <div class="tg-allday"><div class="tg-gut">cały<br>dzień</div>${cols.map(c => `<div class="tg-ad" data-drop="day" data-date="${c.date}">${tgAllDay(c.date, c.uid)}</div>`).join('')}</div>
-    <div class="tg-scroll"><div class="tg-body" style="height:${24 * hh}px">
+    <div class="tg-scroll"><div class="tg-body" style="height:${nh * hh}px">
       <div class="tg-hours">${hours}</div>
       ${cols.map(c => `<div class="tg-col ${c.date === td ? 'today' : ''} ${dow(c.date) === 0 || dow(c.date) === 6 ? 'we' : ''}" data-date="${c.date}" ${c.uid ? `data-uid="${c.uid}"` : ''}>
         ${tgBlocks(c.date, c.uid).map(b => tgBlockHtml(b, hh)).join('')}
-        ${c.date === td ? `<div class="tg-now" style="top:${nowMin / 60 * hh}px"></div>` : ''}</div>`).join('')}
+        ${c.date === td && nowMin >= r0 * 60 && nowMin <= r1 * 60 ? `<div class="tg-now" style="top:${(nowMin - r0 * 60) / 60 * hh}px"></div>` : ''}</div>`).join('')}
     </div></div></div>`;
 }
 function calTitle(mode, base) {
@@ -4209,76 +4220,6 @@ function calBase(mode) {
   if (mode === 'week') return ui.calWeek || weekStart(sel);
   if (mode === 'agenda') return td;
   return ui.calDay || sel;
-}
-function renderCalendar() {
-  const td = todayStr(), mode = CAL_MODES.some(m => m[0] === ui.calMode) ? ui.calMode : (isNarrow() ? 'day' : 'week');
-  ui.calMode = mode;
-  const base = calBase(mode), sel = ui.calSel || td;
-  const nCal = team.cals.length, errs = team.cals.filter(c => team.ev[c.id]?.err);
-  let html = header(`<span class="cal2-title">${calTitle(mode, base)}</span>`, { icon: sz(I.calMonth, 24), iconCls: 'tile', barTitle: 'Kalendarz',
-    after: whoChips(),
-    after: team.members.length ? `<div class="cal-people">${[['all', sz(I.team, 15), 'Wszyscy'], ...team.members.map(m => [m.user_id, avatar(m.user_id, 20), firstName(m.user_id)]), ['none', '<span class="av none" style="--s:20px">?</span>', 'Nieprzypisane']].map(([v, ic, l]) => { const w = state.settings.who || 'all', on = w === v || (v === me() && w === 'me'); return `<button class="cp-chip ${on ? 'on' : ''}" data-act="cal-who" data-w="${v}" style="--c:${v === 'all' || v === 'none' ? 'var(--accent)' : memberColor(v)}">${ic}<span>${esc(l)}</span></button>`; }).join('')}</div>` : '',
-    right: `<div class="seg-inline cal-modes">${CAL_MODES.map(([v, l]) => `<button class="${mode === v ? 'sel' : ''}" data-act="cal-mode" data-v="${v}">${l}</button>`).join('')}</div>
-      <div class="cal2-nav">${mode === 'agenda' ? '' : `<button class="icon-btn" data-act="cal-step" data-n="-1" title="Wstecz">${I.left}</button>`}<button class="btn" data-act="cal-step" data-n="0">Dziś</button>${mode === 'agenda' ? '' : `<button class="icon-btn" data-act="cal-step" data-n="1" title="Dalej">${I.right}</button>`}</div>
-      ${mode === 'week' ? `<button class="btn cal-wk ${state.settings.calWork ? 'on' : ''}" data-act="cal-work" title="Pokaż tylko dni robocze">Pn–Pt</button>` : ''}<button class="btn cal-src" data-act="cal-src">${sz(I.eye, 15)} Kalendarze</button>` });
-  if (mode === 'month') {
-    const first = parseDate(base), y = first.getFullYear(), m = first.getMonth();
-    const start = weekStart(base), end = addDays(weekStart(fmtDate(new Date(y, m + 1, 0))), 6);
-    let cells = '', i = 0, maxN = 1;
-    for (let d = start; d <= end; d = addDays(d, 1)) maxN = Math.max(maxN, calTasks(d).length);
-    const chip = t => `<div class="cal2-chip st-${stOf(t)} ${t.completed && t.kind !== 'event' ? 'done' : ''} ${pastEvent(t) ? 'past' : ''} ${t.kind === 'event' ? 'is-event' : ''}" draggable="true" data-act="open" data-id="${t.id}" style="--c:${itemColor(t)}" title="${esc(t.title)}"><i></i><span>${t.time ? `<b>${t.time}</b> ` : ''}${esc(t.title)}</span></div>`;
-    const evChip = e => `<div class="cal2-chip ev" style="--c:${e.color}" title="${esc(e.cal + ': ' + e.title)}"><i></i><span>${e.time ? `<b>${e.time}</b> ` : ''}${esc(e.title)}</span></div>`;
-    for (let d = start; d <= end; d = addDays(d, 1)) {
-      const ts = calTasks(d), ev = gcalEventsOn(d, 'gcalCal'), w = dow(d);
-      const items = [...ev.map(e => ({ k: e.time || '', h: evChip(e) })), ...ts.map(t => ({ k: t.time || '', h: chip(t) }))].sort((a, b) => a.k.localeCompare(b.k)).map(x => x.h);
-      if (w === 1 && state.settings.calWeekNums) cells += `<div class="cal2-wn">${isoWeek(d)}</div>`;
-      cells += `<div class="cal2-cell ${parseDate(d).getMonth() === m ? '' : 'other'} ${d === td ? 'today' : ''} ${d === sel ? 'sel' : ''} ${w === 0 || w === 6 ? 'we' : ''} ${d < td ? 'past' : ''}" data-act="cal-day" data-date="${d}" data-drop="day" style="--i:${Math.min(i++, 41)};--load:${(ts.length / maxN).toFixed(2)}">
-        <div class="cal2-top"><span class="cal2-num">${parseDate(d).getDate()}</span>${items.length ? `<span class="cal2-n">${items.length}</span>` : ''}</div>
-        <div class="cal2-items">${items.slice(0, 4).join('')}${items.length > 4 ? `<span class="cal2-more">+${items.length - 4}</span>` : ''}</div>
-        <div class="cal2-dots">${[...ev.map(e => `<i style="--c:${e.color}"></i>`), ...ts.map(t => `<i style="--c:${itemColor(t)}"></i>`)].slice(0, 5).join('')}</div></div>`;
-    }
-    const grid = `<div class="cal2-wd ${state.settings.calWeekNums ? 'wn' : ''}">${state.settings.calWeekNums ? '<span></span>' : ''}${['Pon', 'Wt', 'Śr', 'Czw', 'Pt', 'Sob', 'Nd'].map(x => `<span>${x}</span>`).join('')}</div><div class="cal2-month ${state.settings.calWeekNums ? 'wn' : ''}">${cells}</div>`;
-    html += `<div class="cal2 month"><div class="cal2-main">${grid}</div>${dayAgenda(sel)}</div>`;
-    return html;
-  }
-  if (mode === 'agenda') {
-    let body = '';
-    for (let i = 0; i < 30; i++) {
-      const d = addDays(td, i), ts = calTasks(d), ev = gcalEventsOn(d, 'gcalCal');
-      if (!ts.length && !ev.length) continue;
-      const rows = [...ev.map(e => ({ k: e.time || '00:00', h: `<a class="ag-row ext" style="--c:${e.color}" ${e.link && /^https:\/\//.test(e.link) ? `href="${esc(e.link)}" target="_blank" rel="noopener"` : ''}><span class="ag-t">${e.time ? e.time + '–' + e.endTime : 'cały dzień'}</span><span class="ag-bar"></span><span class="grow"><b>${esc(e.title)}</b>${e.location ? `<span class="muted small"> · ${esc(e.location)}</span>` : ''}</span><span class="ag-cal">${esc(e.cal)}</span></a>` })),
-        ...ts.map(t => ({ k: t.time || '00:00', h: `<div class="ag-row st-${stOf(t)}" style="--c:${itemColor(t)}"><span class="ag-t">${t.time ? timeRange(t) : 'cały dzień'}</span><span class="ag-bar"></span>${t.kind === 'task' ? stSlider(t) : ''}<span class="grow" data-act="open" data-id="${t.id}"><b>${esc(t.title)}</b>${t.location ? `<span class="muted small"> · ${esc(t.location)}</span>` : ''}</span>${t.assignees.length ? avatars(t.assignees, 20) : ''}</div>` }))].sort((a, b) => a.k.localeCompare(b.k));
-      const n = diffDays(d, td);
-      body += `<div class="group ag-day" data-drop="day" data-date="${d}"><div class="group-head"><h3>${parseDate(d).getDate()} ${PL_MON_SHORT[parseDate(d).getMonth()]} · ${n === 0 ? 'Dziś' : n === 1 ? 'Jutro' : cap(PL_DAYS[dow(d)])}</h3><span class="count">${rows.length}</span></div>${rows.map(r => r.h).join('')}</div>`;
-    }
-    html += body || emptyState('Pusto w kalendarzu', 'W ciągu 30 dni nie ma zaplanowanych zadań ani wydarzeń.');
-    return html;
-  }
-  let cols;
-  if (mode === 'week') cols = [...Array(state.settings.calWork ? 5 : 7)].map((_, i) => { const d = addDays(base, i); return { date: d, head: `<span>${PL_DAYS_SHORT[dow(d)]}</span><b>${parseDate(d).getDate()}</b>` }; });
-  else if (mode === 'day') cols = [{ date: base, head: `<span>${cap(PL_DAYS[dow(base)])}</span><b>${parseDate(base).getDate()}</b>` }];
-  else {
-    const who = state.settings.who || 'all';
-    const us = team.members.map(m => m.user_id).filter(u => who === 'all' || who === 'none' ? true : who === 'me' ? u === me() : u === who);
-    cols = [...us.map(u => ({ date: base, uid: u, head: `<span class="tg-person" data-act="person" data-uid="${u}">${avatar(u, 22)} ${esc(firstName(u))}</span>` })),
-      { date: base, uid: '_none', head: '<span class="tg-person"><span class="av none" style="--s:22px">?</span> Nieprzypisane</span>' }];
-    if (team.cals.some(c => calVisible(c.id))) cols.push({ date: base, uid: '_ev', head: `<span class="tg-person">${I.google} Kalendarze</span>` });
-  }
-  html += `<div class="cal2 grid ${mode}">${timeGrid(cols)}</div>
-    <p class="cal-hint muted small">${isNarrow() ? 'Dotknij pustej godziny, aby dodać. Przytrzymaj blok, aby go przesunąć.' : 'Kliknij lub przeciągnij po pustych godzinach, aby dodać wydarzenie z przedziałem czasu. Przeciągnij blok, by go przenieść, a dolną krawędź – by zmienić długość.'}</p>`;
-  return html;
-}
-function dayAgenda(sel) {
-  const td = todayStr(), ts = calTasks(sel), ev = gcalEventsOn(sel, 'gcalCal'), n = diffDays(sel, td), rel = n === 0 ? 'Dziś' : n === 1 ? 'Jutro' : n === -1 ? 'Wczoraj' : '';
-  const sd = parseDate(sel);
-  return `<aside class="cal2-agenda group" data-drop="day" data-date="${sel}">
-    <div class="cal2-ah"><div class="cal2-big">${sd.getDate()}</div><div><b>${cap(PL_DAYS[sd.getDay()])}${rel ? ` · ${rel}` : ''}</b><span>${PL_MON[sd.getMonth()]} ${sd.getFullYear()} · ${ts.length} ${plural(ts.length, 'pozycja', 'pozycje', 'pozycji')}${ev.length ? ` · ${ev.length} z Google` : ''}</span></div>
-      <button class="icon-btn" data-act="cal-goday" data-date="${sel}" title="Otwórz widok dnia">${I.right}</button></div>
-    ${ev.length ? `<div class="cal2-evs">${ev.map(e => `<a class="cal2-ev" ${e.link && /^https:\/\//.test(e.link) ? `href="${esc(e.link)}" target="_blank" rel="noopener"` : ''} style="--c:${e.color}"><span class="cal2-evt">${e.time ? `${e.time}${e.endTime ? '–' + e.endTime : ''}` : 'Cały dzień'}</span><span class="grow">${esc(e.title)}</span><span class="cal2-evc">${esc(e.cal)}</span></a>`).join('')}</div>` : ''}
-    ${ts.map(t => taskRow(t, { showProject: true })).join('')}
-    ${addTaskButton('day:' + sel, { due: sel })}
-    ${!ts.length && !ev.length ? `<div class="cal2-empty">${sz(I.calMonth, 26)}<span>Brak planów na ten dzień</span></div>` : ''}
-  </aside>`;
 }
 function calSources(anchor) {
   openPopover(anchor, (pop, close) => {
@@ -4333,13 +4274,13 @@ document.addEventListener('dblclick', e => {
 // ---------- siatka godzin: dodawanie przez przeciągnięcie, przesuwanie i zmiana długości ----------
 (() => {
   let g = null;
-  const snap = m => Math.max(0, Math.min(24 * 60, Math.round(m / 15) * 15));
-  const minAt = (col, y) => (y - col.getBoundingClientRect().top) / HH() * 60;
+  const snap = m => Math.max(tgRange()[0] * 60, Math.min(tgRange()[1] * 60, Math.round(m / 15) * 15));
+  const minAt = (col, y) => (y - col.getBoundingClientRect().top) / HH() * 60 + tgOff();
   const colAt = (x, y) => { const el = document.elementFromPoint(x, y); return el?.closest?.('.tg-col'); };
   const ghost = (col, s, e2, cls) => {
     let gh = $('.tg-ghost');
     if (!gh || gh.parentElement !== col) { gh?.remove(); gh = document.createElement('div'); gh.className = 'tg-ghost ' + (cls || ''); col.appendChild(gh); }
-    gh.style.top = s / 60 * HH() + 'px'; gh.style.height = Math.max(12, (e2 - s) / 60 * HH()) + 'px';
+    gh.style.top = (s - tgOff()) / 60 * HH() + 'px'; gh.style.height = Math.max(12, (e2 - s) / 60 * HH()) + 'px';
     gh.textContent = `${minHm(s)}–${minHm(Math.min(e2, 1439))}`;
   };
   const start = (e, kind) => {
@@ -4373,7 +4314,7 @@ document.addEventListener('dblclick', e => {
     if (e.pointerType === 'touch') e.preventDefault();
     if (g.kind === 'create') { const m = snap(minAt(g.col, e.clientY)); const a = Math.min(g.s, m), b = Math.max(g.s + 15, m); ghost(g.col, a, b, 'new'); g.a = a; g.b = b; }
     else if (g.kind === 'resize') { const m = snap(minAt(g.col, e.clientY)); g.e = Math.max(g.s + 15, m); ghost(g.col, g.s, g.e); g.blk.style.opacity = '.35'; }
-    else { const c = colAt(e.clientX, e.clientY) || g.col; g.col2 = c; const s = snap(minAt(c, e.clientY) - g.off); g.ns = Math.max(0, Math.min(24 * 60 - g.dur, s)); ghost(c, g.ns, g.ns + g.dur); g.blk.style.opacity = '.35'; }
+    else { const c = colAt(e.clientX, e.clientY) || g.col; g.col2 = c; const s = snap(minAt(c, e.clientY) - g.off); g.ns = Math.max(tgOff(), Math.min(tgRange()[1] * 60 - g.dur, s)); ghost(c, g.ns, g.ns + g.dur); g.blk.style.opacity = '.35'; }
   }, { passive: false });
   const end = e => {
     if (press && !g) {
@@ -4469,7 +4410,7 @@ navigator.serviceWorker?.addEventListener?.('message', e => { const id = e.data?
 // ================================================================
 //  Ustawienia z zakładkami
 // ================================================================
-const PREF_TABS = [['general', 'Ogólne', () => I.gear], ['tour', 'Przewodnik', () => I.compass], ['team', 'Zespół', () => I.team], ['calendars', 'Kalendarze', () => I.calMonth], ['notif', 'Powiadomienia', () => I.bell], ['theme', 'Motyw', () => I.moon], ['account', 'Konto', () => I.cloud]];
+const PREF_TABS = [['general', 'Ogólne', () => I.gear], ['view', 'Widok', () => I.sliders], ['tour', 'Przewodnik', () => I.compass], ['team', 'Zespół', () => I.team], ['calendars', 'Kalendarze', () => I.calMonth], ['notif', 'Powiadomienia', () => I.bell], ['theme', 'Motyw', () => I.moon], ['account', 'Konto', () => I.cloud]];
 function renderPrefs() {
   const s = state.settings, tab = PREF_TABS.some(t => t[0] === ui.prefTab) ? ui.prefTab : 'general';
   let html = header('Ustawienia', { icon: sz(I.gear, 24), iconCls: 'tile', sub: team.ws ? `Zespół: <b>${esc(team.ws.name)}</b>` : 'Wygląd, zespół, kalendarze i powiadomienia' });
@@ -4478,14 +4419,10 @@ function renderPrefs() {
   if (tab === 'general') {
     const cardOpts = [['today', 'Moje na dziś'], ['plan', 'Mój plan dnia'], ['next', 'Najbliższe 7 dni'], ['team', 'Zespół'], ['unassigned', 'Nieprzypisane'], ['done', 'Ostatnio ukończone']];
     body = sec(0, 'Profil', prefRow('Imię i nazwisko', 'Tak widzi Cię zespół', `<input class="pf-in" data-k="userName" value="${esc(s.userName || '')}" maxlength="60" aria-label="Imię">`)
-      + prefRow('Widok po uruchomieniu', 'Co widzisz po otwarciu aplikacji', segBtns('startView', s.startView, [['home', 'Start'], ['mine', 'Moje'], ['today', 'Dziś'], ['calendar', 'Kalendarz']])))
-      + sec(1, 'Lista zadań', prefRow('Gęstość listy', 'Odstępy między zadaniami', segBtns('density', s.density, [['compact', 'Zwarta'], ['normal', 'Normalna'], ['roomy', 'Przestronna']]))
-      + prefRow('Opisy zadań na liście', 'Pierwsza linia opisu pod tytułem', swBtn(s.showDesc !== false, 'showDesc'))
+      + prefRow('Widok po uruchomieniu', 'Co widzisz po otwarciu aplikacji', segBtns('startView', s.startView, [['my', 'Moje'], ['tasks', 'Zadania'], ['calendar', 'Kalendarz'], ['team', 'Zespół']]))
       + prefRow('Dźwięki', 'Przy zmianie statusu i ukończeniu', swBtn(s.sound !== false, 'sound'))
       + prefRow('Skala interfejsu', 'Powiększ lub pomniejsz całą aplikację', segBtns('scale', s.scale, [[90, '90%'], [100, '100%'], [110, '110%'], [120, '120%']])))
-      + sec(2, 'Kalendarz', prefRow('Początek dnia w siatce godzin', 'Od której godziny przewijać widok tygodnia i dnia', stepper('calStartHour', s.calStartHour ?? 7, 1, '', ':00'))
-      + prefRow('Numery tygodni', 'W widoku miesiąca', swBtn(!!s.calWeekNums, 'calWeekNums'))
-      + prefRow('Wydarzenia Google w Nadchodzących', '', swBtn(s.gcalUp !== false, 'gcalUp')) + prefRow('Wydarzenia Google na Starcie', '', swBtn(s.gcalToday !== false, 'gcalToday')))
+      + `<section class="pf-card" style="--i:1"><h3>Wygląd list, kalendarza i ukończonych zadań</h3><p class="pf-p">Co pokazywać, co chować i co dzieje się z ukończonymi zadaniami – w zakładce <b>Widok</b>.</p><button class="btn sm primary" data-act="pref-tab" data-t="view">Przejdź do ustawień widoku</button></section>`
       + sec(3, 'Animacje', prefRow('Animacje', 'Płynne przejścia między widokami', segBtns('anim', s.anim, [['full', 'Włączone'], ['off', 'Wyłączone']])))
       + sec(5, 'Dodawanie głosem', prefRow('Status', (dictNS || SpeechRec) ? '<span class="ok-txt">Rozpoznawanie mowy dostępne</span>' : 'Niedostępne w tym oknie', `<button class="btn sm" data-act="voice">${sz(I.mic, 14)} Wypróbuj</button>`)
       + prefRow('Dodawaj od razu', 'Po zakończeniu mówienia bez potwierdzania', swBtn(!!s.voiceAuto, 'voiceAuto')))
@@ -4529,10 +4466,13 @@ function renderPrefs() {
     body = sec(0, `${sz(I.bell, 16)} Powiadomienia push na tym urządzeniu`, prefRow('Stan', st === 'on' ? '<span class="ok-txt">Włączone</span>' : st === 'denied' ? 'Zablokowane w przeglądarce – odblokuj je w ustawieniach strony' : st === 'na' ? (isIOS() && !isStandalone() ? 'Na iPhonie dodaj najpierw aplikację do ekranu początkowego (Udostępnij → Do ekranu początkowego) i otwórz ją z ikony' : 'Niedostępne na tym urządzeniu / w tej przeglądarce') : 'Wyłączone',
         st === 'on' ? `<div style="display:flex;gap:6px"><button class="btn sm" data-act="push-test">Wyślij test</button><button class="btn sm" data-act="push-off">Wyłącz</button></div>` : st === 'off' ? `<button class="btn sm primary" data-act="push-on">Włącz</button>` : '')
       + `<p class="pf-p">Włącz powiadomienia na każdym urządzeniu (telefon, laptop), na którym chcesz je dostawać.</p>`)
-      + sec(1, 'Kiedy dostaniesz powiadomienie', `<ul class="pf-ul"><li>👤 ktoś <b>przypisze Ci zadanie</b> lub wydarzenie,</li><li>🔄 zmieni się <b>status</b> zadania, które utworzyłeś lub które jest Twoje (w trakcie / ukończone),</li><li>💬 ktoś doda <b>komentarz</b> do Twojego zadania,</li><li>⏰ zbliża się <b>godzina</b> zadania lub wydarzenia z przypisaniem (domyślnie 10 min wcześniej – zmienisz w oknie zadania).</li></ul>
+      + sec(1, 'Kiedy dostaniesz powiadomienie', `<ul class="pf-ul"><li>👤 ktoś <b>przypisze Ci zadanie</b> lub wydarzenie,</li><li>🔄 zmieni się <b>status</b> zadania, które utworzyłeś lub które jest Twoje (w trakcie / ukończone),</li><li>💬 ktoś doda <b>komentarz</b> do Twojego zadania,</li><li>⏰ zbliża się <b>godzina</b> zadania lub wydarzenia z przypisaniem (domyślnie 10 min wcześniej – zmienisz w oknie zadania),</li><li>⚠️ masz zadania <b>po terminie</b> – codziennie o 8:00 (oraz gdy ktoś kliknie „Przypomnij” w Raportach).</li></ul>
+        ${prefRow('Codzienne przypomnienie o zaległych', 'Powiadomienie o 8:00, jeśli masz zadania po terminie', swBtn(state.settings.overduePush !== false, 'overduePush'))}
         <p class="muted small">Nie dostajesz powiadomień o własnych zmianach. Lista ostatnich powiadomień jest pod dzwonkiem w menu.</p>`);
   } else if (tab === 'tour') {
     body = tourPrefsHtml();
+  } else if (tab === 'view') {
+    body = viewPrefsHtml();
   } else if (tab === 'theme') {
     const cur = s.accent || 'todoist';
     body = sec(0, 'Tryb', `<div class="seg-inline th-modes">${[['dark', 'Ciemny'], ['light', 'Jasny'], ['auto', 'Systemowy']].map(([v, l]) => `<button class="${s.theme === v ? 'sel' : ''}" data-act="pref" data-k="theme" data-v="${v}"><span class="th-mp ${v}"><i></i><i></i><i></i></span><span>${l}</span></button>`).join('')}</div>`)
@@ -4636,12 +4576,14 @@ document.addEventListener('change', async e => {
 });
 // krok dla „Początek dnia” w ustawieniach kalendarza
 document.addEventListener('click', e => {
-  const b = e.target.closest('[data-act="pref-step"][data-k="calStartHour"]');
+  const b = e.target.closest('[data-act="pref-step"][data-k="calStartHour"], [data-act="pref-step"][data-k="calEndHour"]');
   if (!b) return;
   e.stopImmediatePropagation();
-  const v = Math.max(0, Math.min(20, (state.settings.calStartHour ?? 7) + +b.dataset.d));
-  state.settings.calStartHour = v; save(); ui.tgScroll = null;
+  const k = b.dataset.k, s = state.settings, a0 = s.calStartHour ?? 7, b0 = s.calEndHour ?? 20;
+  const v = k === 'calStartHour' ? Math.max(0, Math.min(b0 - 1, a0 + +b.dataset.d)) : Math.max(a0 + 1, Math.min(24, b0 + +b.dataset.d));
+  s[k] = v; s.calFullDay = false; save(); ui.tgScroll = null;
   const x = $('b', b.parentElement); if (x) x.textContent = v + ':00';
+  if (b.closest('#popover')) { ui.quiet = true; renderMain(); }
 }, true);
 
 // ================================================================
@@ -4650,10 +4592,11 @@ document.addEventListener('click', e => {
 openQuick = function () {
   const v = ui.view, d = { projectId: 'inbox' };
   if (v.type === 'project') d.projectId = v.id;
-  if (v.type === 'today' || v.type === 'mine') d.due = todayStr();
+  if (v.type === 'today' || v.type === 'mine' || v.type === 'my') d.due = ui.myWhen === 'tomorrow' && v.type === 'my' ? addDays(todayStr(), 1) : todayStr();
   if (v.type === 'label') d.labels = [v.id];
   if (v.type === 'calendar') d.due = ui.calSel || todayStr();
-  if (v.type === 'mine') d.assignees = [me()];
+  if (v.type === 'mine' || v.type === 'my') d.assignees = [me()];
+  if (v.type === 'calendar' && ui.calMode === 'day') d.due = ui.calDay || d.due;
   if (v.type === 'person') d.assignees = [v.id];
   const w = state.settings.who;
   if (!d.assignees && w && !['all', 'none'].includes(w) && ['today', 'upcoming', 'calendar'].includes(v.type)) d.assignees = [w === 'me' ? me() : w];
@@ -4676,11 +4619,11 @@ render = function () {
   renderNotifBadge();
   const sc = $('.tg-scroll');
   if (sc) {
-    sc.scrollTop = ui.tgScroll ?? Math.max(0, (state.settings.calStartHour ?? 7) * HH() - 4);
+    sc.scrollTop = ui.tgScroll ?? (state.settings.calFullDay ? Math.max(0, (state.settings.calStartHour ?? 7) * HH() - 4) : 0);
     sc.addEventListener('scroll', () => { ui.tgScroll = sc.scrollTop; }, { passive: true });
   }
 };
-setInterval(() => { const n = new Date(), m = n.getHours() * 60 + n.getMinutes(); $$('.tg-now').forEach(x => { x.style.top = m / 60 * HH() + 'px'; }); }, 60000);
+setInterval(() => { const n = new Date(), m = n.getHours() * 60 + n.getMinutes(); $$('.tg-now').forEach(x => { x.style.top = (m - tgOff()) / 60 * HH() + 'px'; }); }, 60000);
 
 
 
@@ -4728,9 +4671,9 @@ function renderReports() {
   <div class="rep-box"><h3>Ukończone zadania – ostatnie 14 dni</h3>
     <div class="bars">${per.map((c, i) => `<div class="bar-col"><span class="bar-v">${c || ''}</span><div class="bar ${days[i] === td ? '' : 'low'}" style="height:${c / max * 78}%"></div></div>`).join('')}</div>
     <div class="bar-l">${days.map(d => `<span>${parseDate(d).getDate()}</span>`).join('')}</div></div>
-  <div class="rep-box" style="margin-top:16px"><h3>Osoby</h3><div class="rep-scroll"><table class="rep-tbl"><tr><th></th><th>Otwarte</th><th>W trakcie</th><th>Po terminie</th><th>Ukończone (7 dni)</th><th>Ukończone (30 dni)</th></tr>
-    ${team.members.map(m => { const u = m.user_id, ts = all.filter(t => t.assignees.includes(u)); return `<tr data-act="person" data-uid="${u}"><td>${avatar(u, 22)} ${esc(memberName(u))}</td><td>${ts.length}</td><td class="y">${ts.filter(t => stOf(t) === 1).length || '–'}</td><td class="r">${ts.filter(t => t.due && t.due < td).length || '–'}</td><td>${wk.filter(t => t.completedBy === u).length || '–'}</td><td>${done.filter(t => t.completedBy === u && t.completedAt > Date.now() - 30 * 864e5).length || '–'}</td></tr>`; }).join('')}
-    </table></div></div>
+  <div class="rep-box" style="margin-top:16px"><h3>Osoby</h3><div class="rep-scroll"><table class="rep-tbl"><tr><th></th><th>Otwarte</th><th>W trakcie</th><th>Po terminie</th><th>Ukończone (7 dni)</th><th>Ukończone (30 dni)</th><th></th></tr>
+    ${team.members.map(m => { const u = m.user_id, ts = all.filter(t => t.assignees.includes(u)); return `<tr data-act="person" data-uid="${u}"><td>${avatar(u, 22)} ${esc(memberName(u))}</td><td>${ts.length}</td><td class="y">${ts.filter(t => stOf(t) === 1).length || '–'}</td><td class="r">${ts.filter(t => t.due && t.due < td).length || '–'}</td><td>${wk.filter(t => t.completedBy === u).length || '–'}</td><td>${done.filter(t => t.completedBy === u && t.completedAt > Date.now() - 30 * 864e5).length || '–'}</td><td>${u !== me() && ts.some(t => t.due && t.due < td) ? `<button class="btn sm nudge-btn" data-act="nudge" data-uid="${u}" title="Wyślij tej osobie powiadomienie push o zadaniach po terminie">${sz(I.bell, 13)} Przypomnij</button>` : ''}</td></tr>`; }).join('')}
+    </table></div><p class="muted small" style="margin-top:8px">Kliknij osobę, aby zobaczyć jej zadania. <b>Przypomnij</b> wysyła powiadomienie push o zadaniach po terminie. Codziennie o 8:00 każdy z zaległościami dostaje takie przypomnienie automatycznie.</p></div>
   <div class="rep-box" style="margin-top:16px"><h3>Projekty</h3>${[proj('inbox'), ...userProjects()].map(p => {
     const open = all.filter(t => t.projectId === p.id).length, dn = done.filter(t => t.projectId === p.id).length, pod = od.filter(t => t.projectId === p.id).length;
     const pc = open + dn ? Math.round(dn / (open + dn) * 100) : 0, col = p.color && p.color !== '#808080' ? p.color : 'var(--muted)';
@@ -4783,7 +4726,7 @@ document.addEventListener('click', e => {
 const whoTitle = () => { const w = state.settings.who || 'me'; return w === 'me' ? 'Moje zadania' : w === 'all' ? 'Zadania zespołu' : w === 'none' ? 'Nieprzypisane zadania' : 'Zadania: ' + esc(memberName(w)); };
 
 // ---------- ZADANIA ----------
-const TASK_TABS = [['today', 'Dziś'], ['upcoming', 'Nadchodzące'], ['all', 'Wszystkie'], ['done', 'Ukończone']];
+const TASK_TABS = [['today', 'Dziś'], ['upcoming', 'Nadchodzące'], ['all', 'Wszystkie']];
 function dayHead(d) { const n = diffDays(d, todayStr()); return `${n === 0 ? 'Dziś' : n === 1 ? 'Jutro' : cap(PL_DAYS[dow(d)])} <span class="dh-date">${parseDate(d).getDate()} ${PL_MON_SHORT[parseDate(d).getMonth()]}</span>`; }
 function renderTasks() {
   const tab = TASK_TABS.some(t => t[0] === ui.taskTab) ? ui.taskTab : 'today';
@@ -4799,11 +4742,12 @@ function renderTasks() {
     const evs = act.filter(t => t.kind === 'event' && (t.due === td || (t.endDue && t.due <= td && td <= t.endDue))).sort(byDue);
     const plan = dayPlan(td, evs);
     if (over.length) html += `<div class="group"><div class="group-head"><h3 class="red-h">Po terminie</h3><span class="count">${over.length}</span><button class="btn ghost accent" data-act="reschedule-overdue">Przełóż na dziś</button></div>${over.map(t => taskRow(t, { showProject: true })).join('')}</div>`;
-    html += `<div class="group" data-drop="day" data-date="${td}"><div class="group-head"><h3>Do zrobienia dziś</h3><span class="count">${today.length || ''}</span></div>
-      ${today.map(t => taskRow(t, { showProject: true, hideToday: true })).join('')}${addTaskButton('today', { due: td })}</div>`;
+    const hang = keptDone(t => whoOk(t) && (!t.due || t.due <= td));
+    html += `<div class="group" data-drop="day" data-date="${td}"><div class="group-head"><h3>Do zrobienia dziś</h3><span class="count">${today.length || ''}</span>${hang.length ? `<span class="muted small hang-n">✓ ${hang.length} ukończone</span>` : ''}</div>
+      ${today.map(t => taskRow(t, { showProject: true, hideToday: true })).join('')}${hang.map(t => taskRow(t, { showProject: true, hideToday: true, noDrag: true })).join('')}${addTaskButton('today', { due: td })}</div>`;
     html += `<div class="group"><div class="group-head"><h3>Plan dnia</h3><span class="count">${plan.length || ''}</span><button class="btn ghost" data-act="cal-goday" data-date="${td}">${sz(I.calMonth, 15)} Otwórz w kalendarzu</button></div>
       ${plan.length ? `<div class="pl-list">${plan.map(planRow).join('')}</div>` : '<div class="muted small pad">Brak spotkań dziś.</div>'}</div>`;
-    if (!over.length && !today.length && !plan.length) html += emptyState('Na dziś wszystko zrobione', 'Zajrzyj do zakładki „Nadchodzące” albo dodaj nowe zadanie.');
+    if (!over.length && !today.length && !plan.length && !hang.length) html += emptyState('Na dziś wszystko zrobione', 'Zajrzyj do zakładki „Nadchodzące” albo dodaj nowe zadanie.');
   } else if (tab === 'upcoming') {
     let body = '';
     for (let i = 1; i <= 14; i++) {
@@ -4861,14 +4805,14 @@ function renderProjects() {
 }
 
 // ---------- PASEK BOCZNY ----------
-const MAIN_NAV = [['tasks', 'Zadania', () => I.tasks], ['calendar', 'Kalendarz', () => I.calMonth], ['team', 'Zespół', () => I.team], ['projects', 'Projekty', () => I.folder], ['reports', 'Raporty', () => I.pulse]];
+const MAIN_NAV = [['my', 'Moje', () => I.person], ['tasks', 'Zadania', () => I.tasks], ['calendar', 'Kalendarz', () => I.calMonth], ['team', 'Zespół', () => I.team], ['projects', 'Projekty', () => I.folder], ['archive', 'Zrobione', () => I.done], ['reports', 'Raporty', () => I.pulse]];
 function renderSidebar() {
   $('#app').classList.toggle('sb-closed', !ui.sidebar);
   const td = todayStr(), v = ui.view, sbEl = $('#sidebar');
   const mineToday = state.tasks.filter(t => !t.completed && t.kind !== 'event' && t.assignees.includes(me()) && t.due && t.due <= td).length;
   const cur = ['project', 'inbox'].includes(v.type) ? 'projects' : v.type === 'person' ? 'team' : v.type;
   const name = state.settings.userName || 'Ja';
-  const navBtn = ([k, l, ic]) => `<button class="nav-item nv2 ${cur === k ? 'active' : ''}" data-act="nav" data-view="${k}" data-tour="nav-${k}">${ic()}<span class="name">${l}</span>${k === 'tasks' && mineToday ? `<span class="count">${mineToday}</span>` : ''}</button>`;
+  const navBtn = ([k, l, ic]) => `<button class="nav-item nv2 ${cur === k ? 'active' : ''}" data-act="nav" data-view="${k}" data-tour="nav-${k}">${ic()}<span class="name">${l}</span>${k === 'my' && mineToday ? `<span class="count">${mineToday}</span>` : ''}</button>`;
   const projItem = p => { const on = (v.type === 'project' && v.id === p.id) || (p.isInbox && v.type === 'inbox'); const od = state.tasks.filter(t => !t.completed && t.kind !== 'event' && t.projectId === p.id && t.due && t.due < td).length;
     return `<button class="nav-item pj-item ${on ? 'active' : ''}" data-act="nav" data-view="${p.isInbox ? 'inbox' : 'project'}" ${p.isInbox ? '' : `data-id="${p.id}"`} data-drop="project" data-pid="${p.id}"><span class="pj-dot" style="--c:${p.color && p.color !== '#808080' ? p.color : '#8f9aa6'}"></span><span class="name">${esc(projName(p))}</span>${od ? `<span class="count alert">${od}</span>` : ''}</button>`; };
   sbEl.innerHTML = `
@@ -4898,10 +4842,10 @@ function renderTabbar() {
   if (!tb) { tb = document.createElement('nav'); tb.id = 'tabbar'; tb.setAttribute('aria-label', 'Nawigacja'); document.body.appendChild(tb); }
   const td = todayStr(), v = ui.view.type, n = state.tasks.filter(t => !t.completed && t.kind !== 'event' && t.assignees.includes(me()) && t.due && t.due <= td).length;
   const cur = ['project', 'inbox', 'projects'].includes(v) ? 'projects' : v === 'person' ? 'team' : v;
-  const b = (k, ic, l) => `<button class="${cur === k && !ui.sidebar ? 'on' : ''}" data-act="nav" data-view="${k}" aria-label="${l}"><span class="tb-ic">${ic}${k === 'tasks' && n ? `<b>${n > 99 ? '99+' : n}</b>` : ''}</span><span class="tb-l">${l}</span></button>`;
-  tb.innerHTML = b('tasks', I.tasks, 'Zadania') + b('calendar', I.calMonth, 'Kalendarz')
+  const b = (k, ic, l) => `<button class="${cur === k && !ui.sidebar ? 'on' : ''}" data-act="nav" data-view="${k}" aria-label="${l}"><span class="tb-ic">${ic}${k === 'my' && n ? `<b>${n > 99 ? '99+' : n}</b>` : ''}</span><span class="tb-l">${l}</span></button>`;
+  tb.innerHTML = b('my', I.person, 'Moje') + b('tasks', I.tasks, 'Zadania')
     + `<button class="tb-add" data-act="quick-add" aria-label="Nowe zadanie">${sz(I.plus, 26)}</button>`
-    + b('team', I.team, 'Zespół') + `<button class="${ui.sidebar && isNarrow() ? 'on' : ''}" data-act="tb-more" aria-label="Więcej"><span class="tb-ic">${I.menu}</span><span class="tb-l">Więcej</span></button>`;
+    + b('calendar', I.calMonth, 'Kalendarz') + `<button class="${ui.sidebar && isNarrow() ? 'on' : ''}" data-act="tb-more" aria-label="Więcej"><span class="tb-ic">${I.menu}</span><span class="tb-l">Więcej</span></button>`;
 }
 document.addEventListener('click', e => { if (e.target.closest('[data-act="tour-open"]')) { ui.prefTab = 'tour'; ui.modal = null; setView({ type: 'prefs' }); } });
 
@@ -4913,7 +4857,7 @@ const TOUR = [
   { ch: 'Podstawy', title: 'Witaj w Listo Team 👋', text: 'To krótki przewodnik (ok. 2 minuty). Pokażę Ci, gdzie co jest i jak z tego korzystać. Możesz go przerwać w każdej chwili i wrócić do niego z menu: <b>Przewodnik po aplikacji</b>.', view: { type: 'tasks' }, tab: 'today' },
   { ch: 'Podstawy', sel: '[data-tour="nav"]', msel: '#tabbar', title: 'Pięć głównych miejsc', text: '<b>Zadania</b> – Twoja lista na dziś i dalej.<br><b>Kalendarz</b> – plan godzinowy całego zespołu.<br><b>Zespół</b> – kto co robi.<br><b>Projekty</b> – zadania pogrupowane tematycznie.<br><b>Raporty</b> – statystyki.', view: { type: 'tasks' }, tab: 'today' },
   { ch: 'Podstawy', sel: '[data-tour="add"]', msel: '#tabbar .tb-add', title: 'Dodawanie zadań i wydarzeń', text: 'Kliknij <b>Nowe zadanie</b> (albo klawisz <kbd>Q</kbd>). Możesz pisać naturalnie, np.:<br><code>Oferta dla klienta jutro 14:00 +Ania p1</code><br>– termin, godzina, osoba i priorytet ustawią się same. Przełącznik u góry okna zmienia zadanie w <b>wydarzenie</b> z przedziałem czasu.', view: { type: 'tasks' }, tab: 'today' },
-  { ch: 'Zadania', sel: '.tabs-big', title: 'Zakładki zadań', text: '<b>Dziś</b> – to, co masz zrobić dziś (i zaległe).<br><b>Nadchodzące</b> – kolejne 2 tygodnie dzień po dniu.<br><b>Wszystkie</b> – cała lista.<br><b>Ukończone</b> – historia.', view: { type: 'tasks' }, tab: 'today' },
+  { ch: 'Zadania', sel: '.tabs-big', title: 'Zakładki zadań', text: '<b>Dziś</b> – to, co masz zrobić dziś (i zaległe).<br><b>Nadchodzące</b> – kolejne 2 tygodnie dzień po dniu.<br><b>Wszystkie</b> – cała lista.<br>Ukończone zadania znajdziesz w zakładce <b>Zrobione</b>.', view: { type: 'tasks' }, tab: 'today' },
   { ch: 'Zadania', sel: '.who-row', title: 'Czyje zadania widzisz', text: 'Jednym kliknięciem przełączasz: <b>Moje</b>, <b>Cały zespół</b> albo konkretna osoba. Ten sam wybór działa w Kalendarzu.', view: { type: 'tasks' }, tab: 'today' },
   { ch: 'Zadania', sel: '.content .st3', title: 'Suwak statusu', text: 'Każde zadanie ma suwak:<br>⚪ <b>w lewo</b> – nie zaczęte,<br>🟡 <b>środek</b> – w trakcie,<br>🟢 <b>w prawo</b> – ukończone.<br>Kliknij wybrane miejsce albo przeciągnij. Osoba, która zleciła zadanie, dostanie powiadomienie.', view: { type: 'tasks' }, tab: 'today' },
   { ch: 'Zadania', sel: '.content .row-avs', title: 'Kto robi zadanie', text: 'Kółka z inicjałami to przypisane osoby. Kliknij je, żeby przypisać kogoś innego – ta osoba dostanie powiadomienie push na telefon.', view: { type: 'tasks' }, tab: 'today' },
@@ -5202,13 +5146,14 @@ function startDemo() {
     ] },
   };
   team.notifs = [
+    { id: 9, kind: 'overdue', actor_id: null, task_id: null, title: 'Masz zadania po terminie', body: 'Codzienne przypomnienie (8:00) – zajrzyj do sekcji „Na teraz” na ekranie Moje', created_at: new Date(new Date().setHours(8, 0, 0, 0)).toISOString(), read: false },
     { id: 1, kind: 'assigned', actor_id: 'u-anna', task_id: tasks.find(t => t.title.startsWith('Ustalić budżet')).id, title: 'Ustalić budżet na I kwartał', body: 'Anna Kowalska przypisała Ci zadanie', created_at: new Date(Date.now() - 36e5).toISOString(), read: false },
     { id: 2, kind: 'comment', actor_id: 'u-marta', task_id: bo.id, title: bo.title, body: 'Marta Zielińska: Jasne, poprawię do jutra i wrzucę podgląd.', created_at: new Date(Date.now() - 18 * 36e5).toISOString(), read: false },
     { id: 3, kind: 'done', actor_id: 'u-marta', task_id: tasks.find(t => t.title.startsWith('Makiety')).id, title: 'Makiety stron (wireframe)', body: 'Marta Zielińska ukończyła 🟢', created_at: new Date(Date.now() - 3 * 864e5).toISOString(), read: true },
   ];
   setSync('synced');
   hideAuth();
-  ui.view = location.hash === '#demo' || !location.hash ? { type: 'home' } : hashView();
+  ui.view = location.hash === '#demo' || !location.hash ? { type: 'my' } : hashView();
   ui.stagger = true;
   render();
   setTimeout(maybeOfferTour, 900);
@@ -5224,6 +5169,563 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-act="demo-start"]')) { try { sessionStorage.setItem('lt-demo', '1'); } catch (er) { /* */ } location.reload(); }
 });
 // narzędzie do testów lokalnych (tylko na localhost)
+// ================================================================
+//  v4 – Moje, Zrobione, nowy widok Dnia, karta dnia, zakres godzin, ustawienia widoku
+// ================================================================
+const monthGen = d => ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia'][parseDate(d).getMonth()];
+const relDay = d => { const n = diffDays(d, todayStr()); return n === 0 ? 'Dziś' : n === 1 ? 'Jutro' : n === -1 ? 'Wczoraj' : ''; };
+const minsTo = hm => { const [h, m] = hm.split(':').map(Number), n = new Date(); return h * 60 + m - (n.getHours() * 60 + n.getMinutes()); };
+const inLabel = m => m < 60 ? `za ${m} min` : `za ${Math.floor(m / 60)} godz.${m % 60 ? ' ' + (m % 60) + ' min' : ''}`;
+
+// ---------- ukończone zadania, które jeszcze „wiszą” na liście (ustawienie) ----------
+function keptDone(filter) {
+  const k = state.settings.doneKeep || 'day', td = todayStr(), now = Date.now();
+  if (k === 'none') return [];
+  return state.tasks.filter(t => t.completed && t.completedAt && t.kind !== 'event' && !t.parentId
+    && (k === 'day' ? fmtDate(new Date(t.completedAt)) === td : now - t.completedAt < (k === '1h' ? 36e5 : 864e5))
+    && (!filter || filter(t))).sort((a, b) => a.completedAt - b.completedAt);
+}
+
+// ---------- spóźnienie przy ukończeniu ----------
+function lateInfo(t) {
+  if (!t.due || !t.completedAt) return null;
+  const dl = parseDate(t.due); if (t.time) { const [h, m] = t.time.split(':').map(Number); dl.setHours(h, m); } else dl.setHours(23, 59, 59);
+  const ms = t.completedAt - dl.getTime();
+  if (ms <= 0) { const early = diffDays(t.due, fmtDate(new Date(t.completedAt))); return { late: false, ms, label: early >= 1 ? `${early} ${plural(early, 'dzień', 'dni', 'dni')} przed terminem` : 'na czas' }; }
+  const d = Math.floor(ms / 864e5), h = Math.round(ms / 36e5);
+  return { late: true, ms, label: d >= 1 ? `+${d} ${plural(d, 'dzień', 'dni', 'dni')} po terminie` : h >= 1 ? `+${h} godz. po terminie` : `+${Math.max(1, Math.round(ms / 6e4))} min po terminie` };
+}
+const durLabel = ms => { const d = Math.floor(ms / 864e5), h = Math.round(ms / 36e5); return d >= 1 ? `${d} ${plural(d, 'dzień', 'dni', 'dni')}` : h >= 1 ? `${h} godz.` : `${Math.max(1, Math.round(ms / 6e4))} min`; };
+
+// ================================================================
+//  MOJE – osobisty pulpit: co teraz, dziś, jutro, w tym tygodniu
+// ================================================================
+const MY_SECS = [['hero', 'Teraz i następne'], ['stats', 'Liczniki'], ['add', 'Szybkie dodawanie'], ['now', 'Na teraz (zaległe i w trakcie)'], ['today', 'Dziś'], ['tomorrow', 'Jutro'], ['week', 'W tym tygodniu'], ['later', 'Później i bez terminu'], ['delegated', 'Zleciłem innym'], ['done', 'Zrobione dziś']];
+function myRow(t, o = {}) {
+  const p = proj(t.projectId), td = todayStr(), late = !t.completed && t.due && t.due < td;
+  const others = t.assignees.filter(a => a !== me());
+  const meta = [];
+  if (t.time && o.time !== false && !(o.date && t.due !== todayStr())) meta.push(`<b class="my-tm">${timeRange(t)}</b>`);
+  if (o.date && t.due && !(t.time && t.due === todayStr())) meta.push(`<span class="${late ? 'r' : ''}">${dueLabel(t).label}</span>`);
+  if (o.who && t.assignees.length) meta.push(`<span class="my-whos">${avatars(t.assignees, 16, 3)} ${esc(t.assignees.map(firstName).join(', '))}</span>`);
+  else if (others.length) meta.push(`<span title="${esc(others.map(memberName).join(', '))}">razem z: ${esc(others.slice(0, 3).map(firstName).join(', '))}${others.length > 3 ? ` +${others.length - 3}` : ''}</span>`);
+  if (p && !p.isInbox) meta.push(`<span class="my-pj"><i style="--c:${p.color && p.color !== '#808080' ? p.color : '#8f9aa6'}"></i>${esc(p.name)}</span>`);
+  if (t.location) meta.push(`<span>${sz(I.pin, 12)} ${esc(t.location)}</span>`);
+  return `<div class="my-row st-${stOf(t)} ${t.completed ? 'done' : ''} ${t.kind === 'event' ? 'is-event' : ''}" data-id="${t.id}" style="--c:${itemColor(t)}">
+    ${t.kind === 'event' ? `<span class="my-evt" title="Wydarzenie">${sz(I.calBig, 15)}</span>` : stSlider(t)}
+    <span class="my-main" data-act="open" data-id="${t.id}"><span class="my-title">${t.priority < 4 ? `<span class="pflag">${flagIcon(t.priority, 12)}</span>` : ''}${fmtText(t.title)}</span>
+      ${meta.length ? `<span class="my-meta">${meta.join('')}</span>` : ''}</span></div>`;
+}
+const myGcalRow = e => `<a class="my-row ext" style="--c:${e.color}" ${e.link && /^https:\/\//.test(e.link) ? `href="${esc(e.link)}" target="_blank" rel="noopener"` : ''}><span class="my-evt g">${I.google}</span><span class="my-main"><span class="my-title">${esc(e.title)}</span><span class="my-meta">${e.time ? `<b class="my-tm">${e.time}${e.endTime ? '–' + e.endTime : ''}</b>` : '<b class="my-tm">cały dzień</b>'}<span>${esc(e.cal)}</span>${e.location ? `<span>${sz(I.pin, 12)} ${esc(e.location)}</span>` : ''}</span></span></a>`;
+function myCard(key, title, count, body, o = {}) {
+  if ((state.settings.myHidden || []).includes(key)) return '';
+  return `<section class="my-card ${o.cls || ''}" data-sec="${key}" id="my-${key}"><div class="my-ch"><h3>${title}</h3>${count !== '' ? `<span class="my-n">${count}</span>` : ''}${o.right || ''}</div>${body}</section>`;
+}
+function renderMy() {
+  const td = todayStr(), tm = addDays(td, 1), wkEnd = addDays(td, 7), u = me(), s = state.settings, hid = s.myHidden || [];
+  const mine = state.tasks.filter(t => !t.completed && t.assignees.includes(u));
+  const tasks = mine.filter(t => t.kind !== 'event'), evs = mine.filter(t => t.kind === 'event' && !pastEvent(t));
+  const over = tasks.filter(t => t.due && t.due < td).sort(byDue);
+  const prog = tasks.filter(t => stOf(t) === 1 && !(t.due && t.due < td)).sort(byDue);
+  const onDay = (t, d) => t.due === d || (t.endDue && t.due < d && d <= t.endDue);
+  const todayT = tasks.filter(t => stOf(t) !== 1 && onDay(t, td)).sort(byDue);
+  const todayE = evs.filter(t => onDay(t, td)).sort(byDue);
+  const hang = keptDone(t => t.assignees.includes(u) || t.completedBy === u);
+  const doneToday = state.tasks.filter(t => t.completed && t.completedAt && t.kind !== 'event' && fmtDate(new Date(t.completedAt)) === td && (t.completedBy === u || t.assignees.includes(u))).sort((a, b) => b.completedAt - a.completedAt);
+  const tomList = mine.filter(t => t.due === tm && stOf(t) !== 1 && !pastEvent(t)).sort(byDue);
+  const week = mine.filter(t => t.due && t.due > tm && t.due <= wkEnd && stOf(t) !== 1 && !pastEvent(t)).sort(byDue);
+  const later = tasks.filter(t => (!t.due || t.due > wkEnd) && stOf(t) !== 1).sort((a, b) => (a.due || '9') .localeCompare(b.due || '9') || a.priority - b.priority);
+  const deleg = state.tasks.filter(t => !t.completed && t.kind !== 'event' && t.createdBy === u && t.assignees.length && !t.assignees.includes(u)).sort((a, b) => stOf(b) - stOf(a) || byDue(a, b));
+  const gToday = gcalEventsOn(td, 'gcalToday');
+  // plan dnia: rzeczy z godziną (moje zadania i spotkania + Google)
+  const timed = [...todayT.filter(t => t.time), ...todayE.filter(t => t.time)].map(t => ({ t, k: t.time })).concat(gToday.filter(e => e.time && !e.allDay).map(e => ({ e, k: e.time }))).sort((a, b) => a.k.localeCompare(b.k));
+  const now = nowHM();
+  const live = timed.find(x => { const st = x.t ? x.t.time : x.e.time, en = x.t ? (x.t.endTime || addMin(x.t.time, x.t.kind === 'event' ? 60 : 30)) : (x.e.endTime || st); return st <= now && now < en; });
+  const next = timed.find(x => x.k > now && x !== live);
+  const focus = prog[0] || over.slice().sort((a, b) => a.priority - b.priority)[0] || todayT.slice().sort((a, b) => a.priority - b.priority || byDue(a, b))[0];
+  const total = doneToday.length + over.length + todayT.length + prog.length, pc = total ? Math.round(doneToday.length / total * 100) : 0;
+  const name = firstName(u) || 'Cześć';
+  const h = new Date().getHours(), hi = h < 11 ? 'Dzień dobry' : h < 18 ? 'Cześć' : 'Dobry wieczór';
+  let html = header(`${hi}, ${esc(name)} 👋`, { icon: avatar(u, 30), iconCls: 'plain', barTitle: 'Moje',
+    sub: `${dateLong(td)} · ${todayT.length + prog.length ? `masz dziś <b>${todayT.length + prog.length}</b> ${plural(todayT.length + prog.length, 'zadanie', 'zadania', 'zadań')}` : 'na dziś nic nie zostało'}${todayE.length + gToday.length ? ` i <b>${todayE.length + gToday.length}</b> ${plural(todayE.length + gToday.length, 'spotkanie', 'spotkania', 'spotkań')}` : ''}${over.length ? ` · <b class="hm-red">${over.length} po terminie</b>` : ''}`,
+    right: `<button class="btn" data-act="my-custom" title="Wybierz, co widać na tym ekranie">${sz(I.sliders, 15)} Dostosuj</button>` });
+  // --- Teraz ---
+  if (!hid.includes('hero')) {
+    const liveH = live ? (live.t ? `<div class="my-live" data-act="open" data-id="${live.t.id}"><em>Trwa teraz</em><b>${esc(live.t.title)}</b><span>${timeRange(live.t)}${live.t.location ? ' · ' + esc(live.t.location) : ''}</span></div>`
+      : `<div class="my-live"><em>Trwa teraz</em><b>${esc(live.e.title)}</b><span>${live.e.time}–${live.e.endTime || ''} · ${esc(live.e.cal)}</span></div>`) : '';
+    const nextH = next ? (next.t ? `<div class="my-next" data-act="open" data-id="${next.t.id}"><em>Następne ${inLabel(minsTo(next.k))}</em><b>${esc(next.t.title)}</b><span>${timeRange(next.t)}${next.t.location ? ' · ' + esc(next.t.location) : ''}</span></div>`
+      : `<div class="my-next"><em>Następne ${inLabel(minsTo(next.k))}</em><b>${esc(next.e.title)}</b><span>${next.e.time} · ${esc(next.e.cal)}</span></div>`) : `<div class="my-next empty"><em>Dalej dziś</em><b>Brak kolejnych spotkań</b><span>Czas na zadania ✨</span></div>`;
+    const focusH = focus ? `<div class="my-focus st-${stOf(focus)}"><em>${stOf(focus) === 1 ? 'Pracujesz nad' : over.includes(focus) ? 'Najpierw zaległe' : 'Skup się na'}</em>
+        <b data-act="open" data-id="${focus.id}">${fmtText(focus.title)}</b><span>${focus.due ? dueLabel(focus).label : 'bez terminu'}${focus.projectId && proj(focus.projectId) && !proj(focus.projectId).isInbox ? ' · ' + esc(proj(focus.projectId).name) : ''}</span>
+        <div class="my-fb">${stOf(focus) === 0 ? `<button class="btn" data-act="my-st" data-id="${focus.id}" data-s="1"><span class="st-dot s1"></span> Zaczynam</button>` : ''}<button class="btn primary" data-act="my-st" data-id="${focus.id}" data-s="2">${sz(I.checkSmall, 15)} Zrobione</button></div></div>`
+      : `<div class="my-focus empty"><em>Skup się na</em><b>Wszystko zrobione 🎉</b><span>Nie masz otwartych zadań na dziś.</span></div>`;
+    html += `<div class="my-hero"><div class="my-ring" style="--p:${pc}"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5"/><circle class="v" cx="18" cy="18" r="15.5" pathLength="100"/></svg><span><b>${doneToday.length}</b>/${total}</span><small>zrobione dziś</small></div>${focusH}${liveH || nextH}${liveH ? nextH : ''}</div>`;
+  }
+  // --- liczniki ---
+  if (!hid.includes('stats')) {
+    const tile = (k, n, l, cls) => `<button class="my-tile ${cls} ${n ? '' : 'zero'}" data-act="my-jump" data-k="${k}"><b>${n}</b><span>${l}</span></button>`;
+    html += `<div class="my-tiles">${tile('now', over.length, 'po terminie', 'r')}${tile('now', prog.length, 'w trakcie', 'y')}${tile('today', todayT.length + todayE.length, 'na dziś', '')}${tile('tomorrow', tomList.length, 'na jutro', '')}${tile('week', week.length, 'w tym tygodniu', '')}${tile('done', doneToday.length, 'zrobione dziś', 'g')}</div>`;
+  }
+  // --- szybkie dodawanie ---
+  if (!hid.includes('add')) {
+    const w = ui.myWhen || 'today';
+    html += `<form class="my-add" autocomplete="off"><span class="my-add-ic">${sz(I.plus, 18)}</span>
+      <input class="my-add-in" placeholder="Dodaj coś dla siebie… np. „Oddzwonić do klienta jutro 10:00 p1”" aria-label="Nowe zadanie dla mnie" enterkeyhint="done">
+      <div class="seg-inline my-when">${[['today', 'Dziś'], ['tomorrow', 'Jutro'], ['none', 'Bez terminu']].map(([v, l]) => `<button type="button" class="${w === v ? 'sel' : ''}" data-act="my-when" data-v="${v}">${l}</button>`).join('')}</div>
+      <button class="btn primary" type="submit">Dodaj</button><div class="my-parse"></div></form>`;
+  }
+  // --- sekcje ---
+  const rows = (list, o) => list.map(t => myRow(t, o)).join('');
+  const empty = txt => `<div class="my-empty">${txt}</div>`;
+  const nowBody = over.length || prog.length ? (over.length ? `<div class="my-sub r">Po terminie</div>${rows(over, { date: true })}` : '') + (prog.length ? `<div class="my-sub y">W trakcie</div>${rows(prog, { date: true })}` : '') : empty('Nic zaległego – tak trzymaj ✓');
+  const untimed = todayT.filter(t => !t.time);
+  const todayBody = (timed.length ? `<div class="my-sub">Plan dnia</div><div class="my-plan">${timed.map(x => x.e ? myGcalRow(x.e) : myRow(x.t)).join('')}</div>` : '')
+    + (untimed.length ? `<div class="my-sub">Do zrobienia</div>${rows(untimed)}` : '')
+    + (hang.length ? `<div class="my-sub g">Ukończone</div>${rows(hang)}` : '')
+    + (!timed.length && !untimed.length && !hang.length ? empty('Dziś wolne – dodaj coś albo zajrzyj do zespołu.') : '');
+  const left = myCard('now', '🔥 Na teraz', over.length + prog.length || '', nowBody, { cls: over.length ? 'alert' : '' })
+    + myCard('today', `📌 Dziś <span class="my-d">${parseDate(td).getDate()} ${monthGen(td)}</span>`, todayT.length + todayE.length + gToday.length || '', todayBody, { right: `<button class="icon-btn" data-act="cal-goday" data-date="${td}" title="Otwórz dzień w kalendarzu">${sz(I.calMonth, 16)}</button>` });
+  const byDay = list => { let last = '', out = ''; list.forEach(t => { if (t.due !== last) { last = t.due; out += `<div class="my-sub">${cap(PL_DAYS[dow(t.due)])} ${parseDate(t.due).getDate()} ${monthGen(t.due)}</div>`; } out += myRow(t); }); return out; };
+  const right = myCard('tomorrow', `🌅 Jutro <span class="my-d">${cap(PL_DAYS[dow(tm)])}</span>`, tomList.length || '', tomList.length ? rows(tomList) : empty('Na jutro jeszcze nic.'))
+    + myCard('week', '🗓️ W tym tygodniu', week.length || '', week.length ? byDay(week) : empty('Spokojny tydzień.'))
+    + myCard('later', '📥 Później i bez terminu', later.length || '', later.length ? rows(later.slice(0, ui.myMore ? 99 : 6), { date: true }) + (later.length > 6 && !ui.myMore ? `<button class="btn ghost my-more" data-act="my-more">Pokaż wszystkie (${later.length})</button>` : '') : empty('Pusto.'))
+    + myCard('delegated', '📤 Zleciłem innym', deleg.length || '', deleg.length ? rows(deleg.slice(0, 8), { who: true, date: true }) : empty('Nie masz otwartych zadań zleconych innym osobom.'))
+    + myCard('done', '✅ Zrobione dziś', doneToday.length || '', doneToday.length ? doneToday.map(t => `<div class="my-done"><span class="ar-ck">${I.checkSmall}</span><span class="grow" data-act="open" data-id="${t.id}">${esc(t.title)}</span><span class="muted small">${fmtTime(t.completedAt)}</span></div>`).join('') + `<button class="btn ghost my-more" data-act="nav" data-view="archive">Cała historia →</button>` : empty('Jeszcze nic – przesuń suwak w prawo, gdy skończysz zadanie.'));
+  html += `<div class="my-grid"><div class="my-col">${left}</div><div class="my-col">${right}</div></div>`;
+  return html;
+}
+const fmtTime = ms => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+function myAdd(text) {
+  const r = parseQuick(text, {});
+  if (!r.title) return;
+  const w = ui.myWhen || 'today';
+  const labels = r.labels.map(n => { let l = state.labels.find(x => x.name.toLowerCase() === n.toLowerCase()); if (!l) { l = { id: uid(), name: n, color: '#808080' }; state.labels.push(l); } return l.id; });
+  const t = newTask({ title: r.title, projectId: r.projectId || 'inbox', sectionId: r.sectionId || null, priority: r.priority || 4, due: r.due || (w === 'today' ? todayStr() : w === 'tomorrow' ? addDays(todayStr(), 1) : null), time: r.time || null, endTime: r.endTime || null, recurring: r.recurring || null, labels, order: nextOrder(), assignees: r.assignees.length ? r.assignees : [me()] });
+  if (r.endDue) t.endDue = r.endDue;
+  if (r.kind) t.kind = r.kind;
+  state.tasks.push(t); markEnter(t.id);
+  ui.quiet = true; commit();
+  toast(`Dodano: ${t.title}${t.due ? ' · ' + dueLabel(t).label : ''}${t.assignees[0] !== me() ? ' · ' + t.assignees.map(firstName).join(', ') : ''}`, null, () => openTask(t.id), 'Otwórz');
+  setTimeout(() => $('.my-add-in')?.focus(), 30);
+}
+document.addEventListener('submit', e => {
+  const f = e.target.closest('.my-add'); if (!f) return;
+  e.preventDefault(); const i = $('.my-add-in', f); const v = i.value.trim(); if (v) { i.value = ''; myAdd(v); }
+});
+// podgląd tego, co rozpozna szybkie dodawanie
+document.addEventListener('input', e => {
+  const i = e.target.closest?.('.my-add-in'); if (!i) return;
+  const box = $('.my-parse', i.closest('.my-add')); if (!box) return;
+  const v = i.value.trim(); if (!v) { box.innerHTML = ''; return; }
+  const r = parseQuick(v, {}), ch = [];
+  if (r.due) ch.push(`📅 ${dueLabel({ due: r.due, time: null }).label}`);
+  if (r.time) ch.push(`⏰ ${r.time}${r.endTime ? '–' + r.endTime : ''}`);
+  if (r.assignees.length) ch.push(`👤 ${r.assignees.map(firstName).join(', ')}`);
+  if (r.priority && r.priority < 4) ch.push(`🚩 P${r.priority}`);
+  if (r.projectId && proj(r.projectId)) ch.push(`# ${esc(proj(r.projectId).name)}`);
+  if (r.labels.length) ch.push(`@ ${esc(r.labels.join(', '))}`);
+  box.innerHTML = ch.length ? `<span class="muted small">Rozpoznano:</span> ${ch.map(c => `<span class="my-chip">${c}</span>`).join('')}` : `<span class="muted small">Wskazówka: dopisz „jutro”, „14:00”, „+Anna” albo „p1”.</span>`;
+});
+
+// ================================================================
+//  ZROBIONE – historia ukończonych zadań z filtrami
+// ================================================================
+const arShow = () => Object.assign({ who: true, proj: true, time: true, late: true, dur: false }, state.settings.arShow || {});
+function arFilter() {
+  const f = ui.ar || (ui.ar = { per: '7', who: 'all', proj: '', late: false, q: '' });
+  const since = f.per === 'today' ? parseDate(todayStr()).getTime() : f.per === 'all' ? 0 : Date.now() - (+f.per) * 864e5;
+  let list = state.tasks.filter(t => t.completed && t.completedAt && t.kind !== 'event' && t.completedAt >= since);
+  if (f.who === 'none') list = list.filter(t => !t.completedBy && !t.assignees.length);
+  else if (f.who !== 'all') list = list.filter(t => (t.completedBy || t.assignees[0]) === f.who || t.assignees.includes(f.who));
+  if (f.proj) list = list.filter(t => t.projectId === f.proj);
+  if (f.late) list = list.filter(t => lateInfo(t)?.late);
+  if (f.q) list = list.filter(t => norm(t.title + ' ' + (t.description || '')).includes(norm(f.q)));
+  return list.sort((a, b) => b.completedAt - a.completedAt);
+}
+function arRow(t, grp) {
+  const sh = arShow(), by = t.completedBy || (t.assignees.length === 1 ? t.assignees[0] : null), p = proj(t.projectId), li = lateInfo(t);
+  const meta = [];
+  if (sh.time) meta.push(`<span class="ar-tm" title="${fmtDateTime(t.completedAt)}">${sz(I.clock, 12)} ${grp === 'day' ? fmtTime(t.completedAt) : `${parseDate(fmtDate(new Date(t.completedAt))).getDate()} ${PL_MON_SHORT[new Date(t.completedAt).getMonth()]}, ${fmtTime(t.completedAt)}`}</span>`);
+  if (sh.who && by && grp !== 'who') meta.push(`<span class="ar-who">${avatar(by, 18)} ${esc(memberName(by))}</span>`);
+  if (sh.proj && p && grp !== 'proj') meta.push(`<span class="my-pj"><i style="--c:${p.color && p.color !== '#808080' ? p.color : '#8f9aa6'}"></i>${esc(projName(p))}</span>`);
+  if (sh.late) meta.push(li ? `<span class="ar-badge ${li.late ? 'r' : 'g'}">${li.label}</span>` : '<span class="ar-badge">bez terminu</span>');
+  if (sh.dur && t.createdAt) meta.push(`<span>${sz(I.timer, 12)} ${durLabel(t.completedAt - t.createdAt)}</span>`);
+  if (t.parentId && task(t.parentId)) meta.push(`<span>${I.subtask} ${esc(task(t.parentId).title)}</span>`);
+  return `<div class="ar-row ${li?.late ? 'late' : ''}" data-id="${t.id}"><span class="ar-ck">${I.checkSmall}</span>
+    <span class="ar-main" data-act="open" data-id="${t.id}"><span class="ar-title">${fmtText(t.title)}</span><span class="ar-meta">${meta.join('')}</span></span>
+    <button class="btn sm ghost ar-undo" data-act="toggle" data-id="${t.id}" title="Przywróć do otwartych zadań">${sz(I.repeat, 13)} Przywróć</button></div>`;
+}
+function arListHtml() {
+  const list = arFilter(), g = state.settings.arGroup || 'day';
+  if (!list.length) return emptyState('Brak ukończonych zadań', 'Zmień okres lub filtry – albo przesuń suwak zadania w prawo, gdy je skończysz.');
+  const groups = new Map();
+  list.forEach(t => {
+    const by = t.completedBy || t.assignees[0] || '';
+    const k = g === 'who' ? by : g === 'proj' ? t.projectId : fmtDate(new Date(t.completedAt));
+    if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t);
+  });
+  let keys = [...groups.keys()];
+  if (g !== 'day') keys.sort((a, b) => groups.get(b).length - groups.get(a).length);
+  return keys.map(k => {
+    const ts = groups.get(k), late = ts.filter(t => lateInfo(t)?.late).length;
+    const title = g === 'who' ? (k ? `${avatar(k, 22)} ${esc(memberName(k))}` : 'Bez osoby') : g === 'proj' ? `<span class="pj-dot" style="--c:${proj(k)?.color && proj(k).color !== '#808080' ? proj(k).color : '#8f9aa6'}"></span> ${esc(projName(proj(k)))}` : dayHead(k);
+    return `<div class="ar-group"><div class="ar-gh"><h3>${title}</h3><span class="my-n">${ts.length}</span>${late ? `<span class="ar-badge r">${late} po terminie</span>` : ''}</div>${ts.map(t => arRow(t, g)).join('')}</div>`;
+  }).join('');
+}
+function arStatsHtml() {
+  const list = arFilter(), withDue = list.filter(t => t.due), late = withDue.filter(t => lateInfo(t).late);
+  const cnt = {}; list.forEach(t => { const b = t.completedBy || t.assignees[0]; if (b) cnt[b] = (cnt[b] || 0) + 1; });
+  const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
+  const avgLate = late.length ? late.reduce((s, t) => s + lateInfo(t).ms, 0) / late.length : 0;
+  return `<div class="rep-cards ar-cards"><div class="rep-card"><div class="v" style="color:var(--st2)">${list.length}</div><div class="l">Ukończone</div></div>
+    <div class="rep-card"><div class="v">${withDue.length ? Math.round((withDue.length - late.length) / withDue.length * 100) : 100}%</div><div class="l">Na czas</div></div>
+    <div class="rep-card"><div class="v" style="color:var(--due-overdue)">${late.length}</div><div class="l">Po terminie${late.length ? ` · śr. ${durLabel(avgLate)}` : ''}</div></div>
+    <div class="rep-card"><div class="v ar-top">${top ? `${avatar(top[0], 26)} ${top[1]}` : '–'}</div><div class="l">${top ? 'Najwięcej: ' + esc(firstName(top[0])) : 'Najwięcej ukończonych'}</div></div></div>`;
+}
+function renderArchive() {
+  const f = ui.ar || (ui.ar = { per: '7', who: 'all', proj: '', late: false, q: '' }), s = state.settings, sh = arShow(), g = s.arGroup || 'day';
+  const whoOpts = [['all', sz(I.team, 15), 'Wszyscy'], ...team.members.map(m => [m.user_id, avatar(m.user_id, 20), m.user_id === me() ? 'Ja' : firstName(m.user_id)])];
+  let html = header('Zrobione', { icon: sz(I.done, 24), iconCls: 'tile', sub: 'Historia ukończonych zadań: kto, kiedy, z jakiego projektu i czy na czas',
+    after: `<div class="ar-bar">
+      <div class="seg-inline">${[['today', 'Dziś'], ['7', '7 dni'], ['30', '30 dni'], ['all', 'Wszystko']].map(([v, l]) => `<button class="${f.per === v ? 'sel' : ''}" data-act="ar-per" data-v="${v}">${l}</button>`).join('')}</div>
+      <label class="ar-search">${sz(I.search, 15)}<input class="ar-q" value="${esc(f.q)}" placeholder="Szukaj w ukończonych…" aria-label="Szukaj w ukończonych"></label>
+      <select class="pf-sel ar-proj" aria-label="Projekt"><option value="">Wszystkie projekty</option>${[proj('inbox'), ...userProjects()].filter(Boolean).map(p => `<option value="${p.id}" ${f.proj === p.id ? 'selected' : ''}>${esc(projName(p))}</option>`).join('')}</select>
+      <button class="btn ${f.late ? 'on-red' : ''}" data-act="ar-late">${f.late ? '✓ ' : ''}Tylko po terminie</button></div>
+      <div class="who-row">${whoOpts.map(([v, ic, l]) => `<button class="cp-chip ${f.who === v ? 'on' : ''}" data-act="ar-who" data-w="${v}" style="--c:${v === 'all' ? 'var(--accent)' : memberColor(v)}">${ic}<span>${esc(l)}</span></button>`).join('')}</div>
+      <div class="ar-opts"><span class="muted small">Grupuj:</span><div class="seg-inline sm">${[['day', 'Dzień'], ['who', 'Osoba'], ['proj', 'Projekt']].map(([v, l]) => `<button class="${g === v ? 'sel' : ''}" data-act="ar-group" data-v="${v}">${l}</button>`).join('')}</div>
+        <span class="muted small" style="margin-left:8px">Pokaż:</span>${[['who', 'Kto'], ['proj', 'Projekt'], ['time', 'Godzina'], ['late', 'Termin'], ['dur', 'Czas realizacji']].map(([k, l]) => `<button class="ar-tg ${sh[k] ? 'on' : ''}" data-act="ar-show" data-k="${k}">${sh[k] ? '✓ ' : ''}${l}</button>`).join('')}</div>` });
+  html += `<div class="ar-stats">${arStatsHtml()}</div><div class="ar-list">${arListHtml()}</div>`;
+  return html;
+}
+document.addEventListener('input', e => {
+  const i = e.target.closest?.('.ar-q'); if (!i) return;
+  ui.ar.q = i.value; clearTimeout(ui.arT);
+  ui.arT = setTimeout(() => { const l = $('.ar-list'), st = $('.ar-stats'); if (l) l.innerHTML = arListHtml(); if (st) st.innerHTML = arStatsHtml(); }, 150);
+});
+document.addEventListener('change', e => { const s = e.target.closest?.('.ar-proj'); if (s) { ui.ar.proj = s.value; ui.quiet = true; renderMain(); } });
+
+// ================================================================
+//  KALENDARZ – karta dnia (panel w miesiącu i wysuwana karta w tygodniu/zespole)
+// ================================================================
+function ddRow(x, o = {}) {
+  if (x.e) {
+    const e = x.e;
+    return `<a class="dd-row ext" style="--c:${e.color}" ${e.link && /^https:\/\//.test(e.link) ? `href="${esc(e.link)}" target="_blank" rel="noopener"` : ''}><span class="dd-t">${e.time && !e.allDay ? `<b>${e.time}</b><i>${e.endTime || ''}</i>` : '<b>cały</b><i>dzień</i>'}</span><span class="dd-bar"></span>
+      <span class="dd-main"><span class="dd-title">${esc(e.title)}</span><span class="dd-meta">${I.google} ${esc(e.cal)}${e.location ? ' · ' + esc(e.location) : ''}</span></span></a>`;
+  }
+  const t = x.t, p = proj(t.projectId), now = nowHM(), td = todayStr();
+  const live = t.due === td && t.time && t.time <= now && (t.endTime || addMin(t.time, 30)) > now;
+  const meta = [];
+  if (p) meta.push(esc(projName(p)));
+  if (t.location) meta.push(`${sz(I.pin, 11)} ${esc(t.location)}`);
+  if (o.over && t.due) meta.push(`<span class="r">${dueLabel(t).label}</span>`);
+  if (!o.noWho) meta.push(t.assignees.length ? esc(t.assignees.map(firstName).join(', ')) : '<i>nieprzypisane</i>');
+  return `<div class="dd-row st-${stOf(t)} ${t.completed ? 'done' : ''} ${live ? 'live' : ''} ${t.kind === 'event' ? 'is-event' : ''}" data-id="${t.id}" style="--c:${itemColor(t)}">
+    <span class="dd-t">${t.time && !(t.endDue && t.due !== (o.d || t.due)) ? `<b>${t.time}</b>${t.endTime ? `<i>${t.endTime}</i>` : ''}` : `<b class="na">—</b>`}</span><span class="dd-bar"></span>
+    ${t.kind === 'event' ? `<span class="dd-evi" title="Wydarzenie">${sz(I.calBig, 14)}</span>` : stSlider(t)}
+    <span class="dd-main" data-act="open" data-id="${t.id}"><span class="dd-title">${live ? '<em class="pl-now">teraz</em>' : ''}${t.priority < 4 ? `<span class="pflag">${flagIcon(t.priority, 12)}</span>` : ''}${fmtText(t.title)}</span><span class="dd-meta">${meta.join(' · ')}</span></span>
+    ${!o.noWho && t.assignees.length ? avatars(t.assignees, 24, 3) : ''}</div>`;
+}
+function dayData(d, uidCol) {
+  const ts = calTasks(d, uidCol), ev = uidCol === undefined || uidCol === '_ev' ? gcalEventsOn(d, 'gcalCal') : [];
+  const timedT = t => t.time && !(t.endDue && t.due !== d);
+  const timed = [...ts.filter(timedT).map(t => ({ t, k: t.time })), ...ev.filter(e => e.time && !e.allDay && !e.end).map(e => ({ e, k: e.time }))].sort((a, b) => a.k.localeCompare(b.k));
+  const untimed = [...ev.filter(e => !e.time || e.allDay || e.end).map(e => ({ e, k: '' })), ...ts.filter(t => !timedT(t)).map(t => ({ t, k: '' }))];
+  return { ts, ev, timed, untimed };
+}
+function dayDetail(d, o = {}) {
+  const td = todayStr(), { ts, ev, timed, untimed } = dayData(d), rel = relDay(d), sd = parseDate(d);
+  const tk = ts.filter(t => t.kind !== 'event'), evN = ts.length - tk.length + ev.length, doneN = tk.filter(t => t.completed).length;
+  const over = d === td ? state.tasks.filter(t => !t.completed && t.kind !== 'event' && t.due && t.due < td && whoOk(t)).sort(byDue) : [];
+  const ppl = team.members.map(m => [m.user_id, ts.filter(t => t.assignees.includes(m.user_id)).length]).filter(x => x[1]).sort((a, b) => b[1] - a[1]);
+  const free = team.members.filter(m => !ts.some(t => t.assignees.includes(m.user_id))).map(m => m.user_id);
+  return `<div class="dd" data-drop="day" data-date="${d}">
+    <div class="dd-head"><div class="dd-big ${d === td ? 'today' : ''}"><span>${PL_DAYS_SHORT[sd.getDay()]}</span><b>${sd.getDate()}</b></div>
+      <div class="grow"><b class="dd-day">${cap(PL_DAYS[sd.getDay()])}${rel ? ` <em>${rel}</em>` : ''}</b><span>${sd.getDate()} ${monthGen(d)} ${sd.getFullYear()}</span></div>
+      <button class="icon-btn" data-act="dd-step" data-ctx="${o.ctx}" data-date="${addDays(d, -1)}" title="Poprzedni dzień">${I.left}</button><button class="icon-btn" data-act="dd-step" data-ctx="${o.ctx}" data-date="${addDays(d, 1)}" title="Następny dzień">${I.right}</button>
+      ${o.close ? `<button class="icon-btn" data-ds="close" title="Zamknij (Esc)">${I.x}</button>` : ''}</div>
+    <div class="dd-stats"><span><b>${tk.length}</b> ${plural(tk.length, 'zadanie', 'zadania', 'zadań')}</span><span><b>${evN}</b> ${plural(evN, 'spotkanie', 'spotkania', 'spotkań')}</span>${doneN ? `<span class="g"><b>${doneN}</b> ukończone</span>` : ''}${over.length ? `<span class="r"><b>${over.length}</b> zaległe</span>` : ''}</div>
+    ${ppl.length ? `<div class="dd-people">${ppl.map(([u, n]) => `<button class="dd-p" data-act="dd-who" data-uid="${u}" title="Pokaż tylko: ${esc(memberName(u))}">${avatar(u, 22)}<span>${esc(firstName(u))}</span><b>${n}</b></button>`).join('')}${free.length && ppl.length ? `<span class="dd-free" title="${esc(free.map(memberName).join(', '))}">wolni: ${free.length}</span>` : ''}</div>` : ''}
+    <div class="dd-sec"><h4>${sz(I.clock, 14)} Harmonogram</h4>${timed.length ? timed.map(x => ddRow(x, { d })).join('') : '<div class="dd-empty">Brak spotkań i zadań z godziną.</div>'}</div>
+    ${untimed.length ? `<div class="dd-sec"><h4>${sz(I.tasks, 14)} W ciągu dnia</h4>${untimed.map(x => ddRow(x, { d })).join('')}</div>` : ''}
+    ${over.length ? `<div class="dd-sec"><h4 class="red-h">Zaległe z poprzednich dni</h4>${over.slice(0, 6).map(t => ddRow({ t }, { over: true })).join('')}${over.length > 6 ? `<div class="dd-empty">…i ${over.length - 6} więcej</div>` : ''}</div>` : ''}
+    <div class="dd-foot"><button class="btn primary" data-act="dd-add" data-date="${d}">${sz(I.plus, 15)} Dodaj na ten dzień</button><button class="btn ghost" data-act="cal-goday" data-date="${d}">Widok dnia ${sz(I.right, 15)}</button></div>
+  </div>`;
+}
+// wysuwana karta dnia
+function drawDaySheet() {
+  let el = $('#daysheet');
+  if (!ui.daySheet) { if (el && !el.classList.contains('out')) { el.classList.add('out'); setTimeout(() => el.remove(), 230); } return; }
+  if (!el || el.classList.contains('out')) {
+    el?.remove();
+    el = document.createElement('div'); el.id = 'daysheet';
+    el.innerHTML = '<div class="ds-back" data-ds="close"></div><div class="ds-panel" role="dialog" aria-label="Szczegóły dnia"></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', e => { if (e.target.closest('[data-ds="close"]')) { ui.daySheet = null; drawDaySheet(); } });
+  }
+  const p = $('.ds-panel', el), sc = p.scrollTop;
+  p.innerHTML = dayDetail(ui.daySheet, { ctx: 'sheet', close: true });
+  p.scrollTop = sc;
+}
+addEventListener('keydown', e => { if (e.key === 'Escape' && ui.daySheet && !ui.modal && $('#popover')?.hidden !== false) { ui.daySheet = null; drawDaySheet(); } });
+
+// ---------- zakres godzin (okienko w kalendarzu) ----------
+function calRangePop(anchor) {
+  openPopover(anchor, (pop, close) => {
+    const draw = () => {
+      const s = state.settings, [a, b] = tgRange();
+      pop.innerHTML = `<div class="menu rg-menu" style="width:290px"><div class="menu-label">Zakres godzin w siatce</div>
+        <div class="rg-row"><span>Od</span>${stepper('calStartHour', s.calStartHour ?? 7, 1, '', ':00')}</div>
+        <div class="rg-row"><span>Do</span>${stepper('calEndHour', s.calEndHour ?? 20, 1, '', ':00')}</div>
+        <div class="menu-sep"></div><div class="menu-label">Szybki wybór</div>
+        <div class="menu-row rg-pre">${[[8, 16, '8–16'], [7, 19, '7–19'], [6, 22, '6–22'], [0, 24, 'Cała doba']].map(([x, y, l]) => `<button class="st-pill ${a === x && b === y ? 'sel' : ''}" data-rg="${x}-${y}">${l}</button>`).join('')}</div>
+        <div class="menu-sep"></div><label class="menu-item"><span class="grow">Tylko dni robocze (Pn–Pt)</span><input type="checkbox" data-rgw ${s.calWork ? 'checked' : ''}></label>
+        <p class="muted small" style="margin:6px 10px 8px">Wydarzenia spoza zakresu pokazują się na jego krawędzi z ukośnym paskiem.</p></div>`;
+    };
+    draw();
+    pop.onclick = e => {
+      const r = e.target.closest('[data-rg]'); if (!r) return;
+      const [x, y] = r.dataset.rg.split('-').map(Number), s = state.settings;
+      if (x === 0 && y === 24) s.calFullDay = true; else { s.calFullDay = false; s.calStartHour = x; s.calEndHour = y; }
+      save(); ui.tgScroll = null; ui.quiet = true; renderMain(); draw();
+    };
+    pop.onchange = e => { if (e.target.matches('[data-rgw]')) { state.settings.calWork = e.target.checked; save(); ui.quiet = true; renderMain(); } };
+  });
+}
+
+// ---------- DZIEŃ – widok zadaniowy: kto, co i o której ----------
+function dayStrip(d) {
+  const ws = weekStart(d), td = todayStr();
+  return `<div class="day-strip">${[...Array(7)].map((_, i) => { const x = addDays(ws, i), n = calTasks(x).length + gcalEventsOn(x, 'gcalCal').length;
+    return `<button class="ds-d ${x === d ? 'on' : ''} ${x === td ? 'today' : ''} ${i > 4 ? 'we' : ''}" data-act="cal-pick" data-date="${x}"><span>${PL_DAYS_SHORT[dow(x)]}</span><b>${parseDate(x).getDate()}</b><i>${n ? n : ''}</i></button>`; }).join('')}</div>`;
+}
+function renderDayBoard(d) {
+  const td = todayStr(), mode = ui.dayMode || 'people', w = state.settings.who || 'all';
+  let html = `<div class="db-top">${dayStrip(d)}<div class="seg-inline db-mode">${[['people', `${sz(I.team, 15)} Według osób`], ['hours', `${sz(I.clock, 15)} Według godzin`]].map(([v, l]) => `<button class="${mode === v ? 'sel' : ''}" data-act="day-mode" data-v="${v}">${l}</button>`).join('')}</div></div>`;
+  const { ts, ev, timed, untimed } = dayData(d);
+  if (mode === 'hours') {
+    if (!timed.length && !untimed.length) return html + emptyState('Pusty dzień', 'Nie ma zadań ani spotkań. Kliknij „Nowe zadanie”, aby coś zaplanować.');
+    const now = nowHM(); let last = -1, nowShown = d !== td, body = '';
+    timed.forEach(x => {
+      const h = +x.k.slice(0, 2);
+      if (!nowShown && x.k > now) { body += `<div class="dh-now"><span>${now}</span><i></i></div>`; nowShown = true; }
+      if (h !== last) { last = h; body += `<div class="dh-hour">${pad(h)}:00</div>`; }
+      body += ddRow(x, { d });
+    });
+    if (!nowShown) body += `<div class="dh-now"><span>${now}</span><i></i></div>`;
+    html += `<div class="db-hours"><div class="dd-sec">${body}</div>${untimed.length ? `<div class="dd-sec"><h4>${sz(I.tasks, 14)} W ciągu dnia – bez godziny</h4>${untimed.map(x => ddRow(x, { d })).join('')}</div>` : ''}</div>`;
+    return html;
+  }
+  let us = team.members.map(m => m.user_id);
+  if (w === 'me') us = [me()]; else if (w === 'none') us = []; else if (w !== 'all') us = us.filter(u => u === w);
+  us.sort((a, b) => (b === me()) - (a === me()));
+  const busy = [], free = [];
+  us.forEach(u => {
+    const list = calTasks(d, u), over = d === td ? state.tasks.filter(t => !t.completed && t.kind !== 'event' && t.due && t.due < td && t.assignees.includes(u)).sort(byDue) : [];
+    (list.length || over.length ? busy : free).push({ u, list, over });
+  });
+  const card = ({ u, list, over }) => {
+    const tk = list.filter(t => t.kind !== 'event'), dn = tk.filter(t => t.completed).length, evN = list.length - tk.length;
+    const timedL = list.filter(t => t.time && !(t.endDue && t.due !== d)).sort((a, b) => a.time.localeCompare(b.time)), rest = list.filter(t => !timedL.includes(t));
+    const pc = tk.length ? Math.round(dn / tk.length * 100) : 0;
+    return `<section class="db-card" style="--c:${memberColor(u)}" data-drop="person" data-uid="${u}">
+      <div class="db-h"><button class="tc-who" data-act="person" data-uid="${u}">${avatar(u, 34)}<div class="grow"><b>${esc(memberName(u))}${u === me() ? ' <span class="muted small">(Ty)</span>' : ''}</b><span>${tk.length} ${plural(tk.length, 'zadanie', 'zadania', 'zadań')} · ${evN} ${plural(evN, 'spotkanie', 'spotkania', 'spotkań')}${over.length ? ` · <b class="r">${over.length} zaległe</b>` : ''}</span></div></button>
+        <button class="icon-btn" data-act="quick-add-for" data-uid="${u}" title="Dodaj zadanie dla ${esc(firstName(u))}">${I.plus}</button></div>
+      ${tk.length ? `<div class="db-prog"><i style="width:${pc}%"></i></div>` : ''}
+      ${timedL.map(t => ddRow({ t }, { noWho: true, d })).join('')}${rest.map(t => ddRow({ t }, { noWho: true, d })).join('')}
+      ${over.length ? `<div class="db-over">${over.slice(0, 4).map(t => ddRow({ t }, { noWho: true, over: true })).join('')}${over.length > 4 ? `<div class="dd-empty">…i ${over.length - 4} więcej zaległych</div>` : ''}</div>` : ''}</section>`;
+  };
+  const none = w === 'all' || w === 'none' ? ts.filter(t => !t.assignees.length) : [];
+  html += `<div class="db-grid">${busy.map(card).join('')}
+    ${none.length ? `<section class="db-card un" data-drop="person" data-uid="_none"><div class="db-h"><span class="av none" style="--s:34px">?</span><div class="grow"><b>Nieprzypisane</b><span>przeciągnij na osobę lub kliknij awatar w wierszu</span></div></div>${none.map(t => ddRow({ t }, { noWho: true, d })).join('')}</section>` : ''}
+    ${ev.length && w !== 'none' ? `<section class="db-card g"><div class="db-h"><span class="db-gi">${I.google}</span><div class="grow"><b>Kalendarze Google</b><span>${ev.length} ${plural(ev.length, 'wydarzenie', 'wydarzenia', 'wydarzeń')}</span></div></div>${ev.map(e => ddRow({ e })).join('')}</section>` : ''}</div>`;
+  if (free.length) html += `<div class="db-free"><span class="muted">Bez planów tego dnia:</span>${free.map(({ u }) => `<button class="dd-p" data-act="quick-add-for" data-uid="${u}" title="Dodaj zadanie dla ${esc(firstName(u))}">${avatar(u, 22)}<span>${esc(firstName(u))}</span>${sz(I.plus, 13)}</button>`).join('')}</div>`;
+  if (!busy.length && !none.length && !ev.length) html += emptyState('Pusty dzień', 'Nikt nie ma tego dnia zaplanowanych zadań ani spotkań.');
+  return html;
+}
+
+// ---------- KALENDARZ (nowa wersja widoku) ----------
+function renderCalendar() {
+  const td = todayStr(), mode = CAL_MODES.some(m => m[0] === ui.calMode) ? ui.calMode : (isNarrow() ? 'day' : 'week');
+  ui.calMode = mode;
+  const base = calBase(mode), sel = ui.calSel || td, [ra, rb] = tgRange();
+  const people = team.members.length ? `<div class="cal-people">${[['all', sz(I.team, 15), 'Wszyscy'], ...team.members.map(m => [m.user_id, avatar(m.user_id, 20), firstName(m.user_id)]), ['none', '<span class="av none" style="--s:20px">?</span>', 'Nieprzypisane']].map(([v, ic, l]) => { const w = state.settings.who || 'all', on = w === v || (v === me() && w === 'me'); return `<button class="cp-chip ${on ? 'on' : ''}" data-act="cal-who" data-w="${v}" style="--c:${v === 'all' || v === 'none' ? 'var(--accent)' : memberColor(v)}">${ic}<span>${esc(l)}</span></button>`; }).join('')}</div>` : '';
+  let html = header(`<span class="cal2-title">${calTitle(mode, base)}</span>`, { icon: sz(I.calMonth, 24), iconCls: 'tile', barTitle: 'Kalendarz', after: people,
+    right: `<div class="seg-inline cal-modes">${CAL_MODES.map(([v, l]) => `<button class="${mode === v ? 'sel' : ''}" data-act="cal-mode" data-v="${v}">${l}</button>`).join('')}</div>
+      <div class="cal2-nav">${mode === 'agenda' ? '' : `<button class="icon-btn" data-act="cal-step" data-n="-1" title="Wstecz">${I.left}</button>`}<button class="btn" data-act="cal-step" data-n="0">Dziś</button>${mode === 'agenda' ? '' : `<button class="icon-btn" data-act="cal-step" data-n="1" title="Dalej">${I.right}</button>`}</div>
+      ${['week', 'team'].includes(mode) ? `<button class="btn cal-range" data-act="cal-range" title="Zakres godzin i dni robocze">${sz(I.clock, 15)} ${ra}:00–${rb}:00${mode === 'week' && state.settings.calWork ? ' · Pn–Pt' : ''}</button>` : ''}<button class="btn cal-src" data-act="cal-src">${sz(I.eye, 15)} Kalendarze</button>` });
+  if (mode === 'month') {
+    const first = parseDate(base), y = first.getFullYear(), m = first.getMonth();
+    const start = weekStart(base), end = addDays(weekStart(fmtDate(new Date(y, m + 1, 0))), 6);
+    let cells = '', i = 0, maxN = 1;
+    for (let d = start; d <= end; d = addDays(d, 1)) maxN = Math.max(maxN, calTasks(d).length);
+    const chip = t => `<div class="cal2-chip st-${stOf(t)} ${t.completed && t.kind !== 'event' ? 'done' : ''} ${pastEvent(t) ? 'past' : ''} ${t.kind === 'event' ? 'is-event' : ''}" draggable="true" data-act="open" data-id="${t.id}" style="--c:${itemColor(t)}" title="${esc(t.title)}"><i></i><span>${t.time ? `<b>${t.time}</b> ` : ''}${esc(t.title)}</span></div>`;
+    const evChip = e => `<div class="cal2-chip ev" style="--c:${e.color}" title="${esc(e.cal + ': ' + e.title)}"><i></i><span>${e.time ? `<b>${e.time}</b> ` : ''}${esc(e.title)}</span></div>`;
+    for (let d = start; d <= end; d = addDays(d, 1)) {
+      const ts = calTasks(d), ev = gcalEventsOn(d, 'gcalCal'), w = dow(d);
+      const items = [...ev.map(e => ({ k: e.time || '', h: evChip(e) })), ...ts.map(t => ({ k: t.time || '', h: chip(t) }))].sort((a, b) => a.k.localeCompare(b.k)).map(x => x.h);
+      if (w === 1 && state.settings.calWeekNums) cells += `<div class="cal2-wn">${isoWeek(d)}</div>`;
+      cells += `<div class="cal2-cell ${parseDate(d).getMonth() === m ? '' : 'other'} ${d === td ? 'today' : ''} ${d === sel ? 'sel' : ''} ${w === 0 || w === 6 ? 'we' : ''} ${d < td ? 'past' : ''}" data-act="cal-day" data-date="${d}" data-drop="day" style="--i:${Math.min(i++, 41)};--load:${(ts.length / maxN).toFixed(2)}">
+        <div class="cal2-top"><span class="cal2-num">${parseDate(d).getDate()}</span>${items.length ? `<span class="cal2-n">${items.length}</span>` : ''}</div>
+        <div class="cal2-items">${items.slice(0, 4).join('')}${items.length > 4 ? `<span class="cal2-more">+${items.length - 4}</span>` : ''}</div>
+        <div class="cal2-dots">${[...ev.map(e => `<i style="--c:${e.color}"></i>`), ...ts.map(t => `<i style="--c:${itemColor(t)}"></i>`)].slice(0, 5).join('')}</div></div>`;
+    }
+    const grid = `<div class="cal2-wd ${state.settings.calWeekNums ? 'wn' : ''}">${state.settings.calWeekNums ? '<span></span>' : ''}${['Pon', 'Wt', 'Śr', 'Czw', 'Pt', 'Sob', 'Nd'].map(x => `<span>${x}</span>`).join('')}</div><div class="cal2-month ${state.settings.calWeekNums ? 'wn' : ''}">${cells}</div>`;
+    html += `<div class="cal2 month ${state.settings.calPanel === false ? 'no-panel' : ''}"><div class="cal2-main">${grid}</div>${state.settings.calPanel === false ? '' : `<aside class="cal2-agenda">${dayDetail(sel, { ctx: 'month' })}</aside>`}</div>`;
+    return html;
+  }
+  if (mode === 'agenda') {
+    let body = '';
+    for (let i = 0; i < 30; i++) {
+      const d = addDays(td, i), { timed, untimed } = dayData(d);
+      if (!timed.length && !untimed.length) continue;
+      const n = diffDays(d, td);
+      body += `<div class="group ag-day" data-drop="day" data-date="${d}"><div class="group-head"><h3>${parseDate(d).getDate()} ${PL_MON_SHORT[parseDate(d).getMonth()]} · ${n === 0 ? 'Dziś' : n === 1 ? 'Jutro' : cap(PL_DAYS[dow(d)])}</h3><span class="count">${timed.length + untimed.length}</span><button class="btn ghost" data-act="cal-dayopen" data-date="${d}">Szczegóły</button></div>${[...timed, ...untimed].map(x => ddRow(x, { d })).join('')}</div>`;
+    }
+    html += body || emptyState('Pusto w kalendarzu', 'W ciągu 30 dni nie ma zaplanowanych zadań ani wydarzeń.');
+    return html;
+  }
+  if (mode === 'day') return html + renderDayBoard(base);
+  let cols;
+  if (mode === 'week') cols = [...Array(state.settings.calWork ? 5 : 7)].map((_, i) => { const d = addDays(base, i); return { date: d, head: `<span>${PL_DAYS_SHORT[dow(d)]}</span><b>${parseDate(d).getDate()}</b>` }; });
+  else {
+    const who = state.settings.who || 'all';
+    const us = team.members.map(m => m.user_id).filter(u => who === 'all' || who === 'none' ? true : who === 'me' ? u === me() : u === who);
+    cols = [...us.map(u => ({ date: base, uid: u, head: `<span class="tg-person" data-act="person" data-uid="${u}">${avatar(u, 22)} ${esc(firstName(u))}<em class="tg-dn">${calTasks(base, u).length || ''}</em></span>` })),
+      { date: base, uid: '_none', head: '<span class="tg-person"><span class="av none" style="--s:22px">?</span> Nieprzypisane</span>' }];
+    if (team.cals.some(c => calVisible(c.id))) cols.push({ date: base, uid: '_ev', head: `<span class="tg-person">${I.google} Kalendarze</span>` });
+    html += `<div class="db-top">${dayStrip(base)}<button class="btn ghost" data-act="cal-dayopen" data-date="${base}">${sz(I.list, 15)} Szczegóły dnia</button></div>`;
+  }
+  html += `<div class="cal2 grid ${mode}">${timeGrid(cols)}</div>
+    <p class="cal-hint muted small">${mode === 'week' ? 'Kliknij nazwę dnia, aby zobaczyć jego szczegóły. ' : ''}${isNarrow() ? 'Dotknij pustej godziny, aby dodać. Przytrzymaj blok, aby go przesunąć.' : 'Przeciągnij po pustych godzinach, aby dodać wydarzenie. Przeciągnij blok, by go przenieść, a dolną krawędź – by zmienić długość.'}</p>`;
+  return html;
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el || el.closest('#popover') || el.closest('#dialog-root')) return;
+  const a = el.dataset.act;
+  if (a === 'cal-dayopen') { ui.daySheet = el.dataset.date; drawDaySheet(); }
+  else if (a === 'cal-range') calRangePop(el);
+  else if (a === 'cal-pick') { ui.calDay = ui.calSel = el.dataset.date; ui.stagger = true; render(); }
+  else if (a === 'day-mode') { ui.dayMode = el.dataset.v; ui.stagger = true; render(); }
+  else if (a === 'dd-step') { if (el.dataset.ctx === 'sheet') { ui.daySheet = el.dataset.date; drawDaySheet(); } else { ui.calSel = el.dataset.date; if (el.dataset.date.slice(0, 7) !== calBase('month').slice(0, 7)) ui.calMonth = el.dataset.date.slice(0, 8) + '01'; ui.quiet = true; render(); } }
+  else if (a === 'dd-who') { state.settings.who = el.dataset.uid === me() ? 'me' : el.dataset.uid; ui.quiet = true; commit(); }
+  else if (a === 'dd-add') { ui.modal = { type: 'quick' }; openForm('quick', { projectId: 'inbox', due: el.dataset.date }); }
+  else if (a === 'cal-goday' && ui.daySheet) { ui.daySheet = null; drawDaySheet(); }
+  // Moje
+  else if (a === 'my-when') { ui.myWhen = el.dataset.v; $$('.my-when button').forEach(b => b.classList.toggle('sel', b === el)); $('.my-add-in')?.focus(); }
+  else if (a === 'my-st') { setStatus(el.dataset.id, +el.dataset.s); }
+  else if (a === 'my-more') { ui.myMore = true; ui.quiet = true; render(); }
+  else if (a === 'my-jump') { const c = $('#my-' + el.dataset.k); if (c) { c.scrollIntoView({ behavior: 'smooth', block: 'start' }); c.classList.remove('flash-card'); void c.offsetWidth; c.classList.add('flash-card'); } }
+  else if (a === 'my-custom') { ui.prefTab = 'view'; setView({ type: 'prefs' }); setTimeout(() => $('#pf-my')?.scrollIntoView({ block: 'start' }), 60); }
+  // Zrobione
+  else if (a === 'ar-per') { ui.ar.per = el.dataset.v; ui.quiet = true; renderMain(); }
+  else if (a === 'ar-who') { ui.ar.who = el.dataset.w; ui.quiet = true; renderMain(); }
+  else if (a === 'ar-late') { ui.ar.late = !ui.ar.late; ui.quiet = true; renderMain(); }
+  else if (a === 'ar-group') { state.settings.arGroup = el.dataset.v; save(); ui.quiet = true; renderMain(); }
+  else if (a === 'ar-show') { const sh = arShow(); sh[el.dataset.k] = !sh[el.dataset.k]; state.settings.arShow = sh; save(); if (ui.view.type === 'prefs') { el.classList.toggle('on', sh[el.dataset.k]); el.setAttribute('aria-checked', String(sh[el.dataset.k])); } else { ui.quiet = true; renderMain(); } }
+  // Ustawienia widoku
+  else if (a === 'my-sec') { const h = new Set(state.settings.myHidden || []); h.has(el.dataset.v) ? h.delete(el.dataset.v) : h.add(el.dataset.v); state.settings.myHidden = [...h]; save(); el.classList.toggle('on', !h.has(el.dataset.v)); el.setAttribute('aria-checked', String(!h.has(el.dataset.v))); }
+  else if (a === 'cal-done-tg') { const h = new Set(state.settings.calHidden || []); h.has('done') ? h.delete('done') : h.add('done'); state.settings.calHidden = [...h]; save(); el.classList.toggle('on', !h.has('done')); }
+  // przypomnienie o zaległych (Raporty)
+  else if (a === 'nudge') nudgeOverdue(el.dataset.uid, el);
+  else if (a === 'team-jump') { const c = $(`.team-col[data-uid="${el.dataset.uid}"]`); c?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' }); c?.classList.remove('flash-card'); void c?.offsetWidth; c?.classList.add('flash-card'); }
+});
+// po zmianie ustawień od razu odśwież klasy wyglądu
+document.addEventListener('click', () => setTimeout(applyViewClasses), 0);
+function applyViewClasses() {
+  const s = state.settings, app = $('#app'); if (!app) return;
+  app.classList.toggle('hide-proj', s.rowProject === false);
+  app.classList.toggle('hide-lbl', s.rowLabels === false);
+  app.classList.toggle('hide-cnt', s.rowCounts === false);
+  app.classList.toggle('hide-avs', s.rowAvatars === false);
+  app.classList.toggle('big-slider', !!s.bigSlider);
+}
+
+// ---------- ustawienia: zakładka „Widok” ----------
+function viewPrefsHtml() {
+  const s = state.settings, hid = s.myHidden || [], sh = arShow(), [a, b] = tgRange();
+  const sec = (i, title, body, id) => `<section class="pf-card" style="--i:${i}" ${id ? `id="${id}"` : ''}><h3>${title}</h3>${body}</section>`;
+  const sw = (on, act, k) => `<button class="switch ${on ? 'on' : ''}" data-act="${act}" ${k ? `data-k="${k}" data-v="${k}"` : ''} role="switch" aria-checked="${!!on}"><i></i></button>`;
+  return sec(0, `${sz(I.done, 17)} Ukończone zadania`, `<p class="pf-p">Co ma się dziać z zadaniem po przesunięciu suwaka na <b style="color:var(--st2)">ukończone</b>. Każde ukończone zadanie trafia też do zakładki <b>Zrobione</b> (kto, kiedy, czy na czas).</p>`
+      + prefRow('Ukończone na liście', 'Jak długo zostają przekreślone w Zadaniach i na ekranie Moje', segBtns('doneKeep', s.doneKeep || 'day', [['none', 'Znikają od razu'], ['1h', '1 godzinę'], ['day', 'Do końca dnia'], ['24h', '24 godziny']]))
+      + prefRow('Ukończone w kalendarzu', 'Przekreślone bloki w kalendarzu', `<button class="switch ${(s.calHidden || []).includes('done') ? '' : 'on'}" data-act="cal-done-tg" role="switch"><i></i></button>`)
+      + prefRow('Zrobione – co pokazywać', 'Informacje przy każdym ukończonym zadaniu', `<div class="ar-tgs">${[['who', 'Kto'], ['proj', 'Projekt'], ['time', 'Godzina'], ['late', 'Termin'], ['dur', 'Czas realizacji']].map(([k, l]) => `<button class="ar-tg ${sh[k] ? 'on' : ''}" data-act="ar-show" data-k="${k}">${l}</button>`).join('')}</div>`)
+      + prefRow('Zrobione – grupowanie', '', segBtns('arGroup', s.arGroup || 'day', [['day', 'Dzień'], ['who', 'Osoba'], ['proj', 'Projekt']])))
+    + sec(1, `${sz(I.tasks, 17)} Wiersz zadania`, prefRow('Gęstość listy', 'Odstępy między zadaniami', segBtns('density', s.density, [['compact', 'Zwarta'], ['normal', 'Normalna'], ['roomy', 'Przestronna']]))
+      + prefRow('Nazwa projektu', 'Po prawej stronie wiersza', swBtn(s.rowProject !== false, 'rowProject'))
+      + prefRow('Etykiety', 'Kolorowe znaczniki (np. klient, pilne)', swBtn(s.rowLabels !== false, 'rowLabels'))
+      + prefRow('Podzadania i komentarze', 'Małe liczniki pod tytułem', swBtn(s.rowCounts !== false, 'rowCounts'))
+      + prefRow('Osoby', 'Kółka z inicjałami przypisanych osób', swBtn(s.rowAvatars !== false, 'rowAvatars'))
+      + prefRow('Opis zadania', 'Pierwsza linia opisu pod tytułem', swBtn(s.showDesc !== false, 'showDesc'))
+      + prefRow('Większy suwak statusu', 'Łatwiej trafić palcem na telefonie', swBtn(!!s.bigSlider, 'bigSlider')))
+    + sec(2, `${sz(I.person, 17)} Ekran „Moje”`, `<p class="pf-p">Wybierz, które części widzisz na swoim ekranie.</p>${MY_SECS.map(([k, l]) => prefRow(l, '', `<button class="switch ${hid.includes(k) ? '' : 'on'}" data-act="my-sec" data-v="${k}" role="switch" aria-checked="${!hid.includes(k)}"><i></i></button>`)).join('')}`, 'pf-my')
+    + sec(3, `${sz(I.calMonth, 17)} Kalendarz`, prefRow('Zakres godzin', 'Widok tygodnia i zespołu pokazuje tylko te godziny', `<div class="rg-inline">${stepper('calStartHour', s.calStartHour ?? 7, 1, '', ':00')}<span>–</span>${stepper('calEndHour', s.calEndHour ?? 20, 1, '', ':00')}</div>`)
+      + prefRow('Cała doba', 'Ignoruj zakres i pokazuj 0:00–24:00', swBtn(!!s.calFullDay, 'calFullDay'))
+      + prefRow('Tylko dni robocze', 'Widok tygodnia bez soboty i niedzieli', swBtn(!!s.calWork, 'calWork'))
+      + prefRow('Panel dnia w widoku miesiąca', 'Szczegóły wybranego dnia po prawej', swBtn(s.calPanel !== false, 'calPanel'))
+      + prefRow('Kolory bloków', 'Według czego kolorować zadania i spotkania', segBtns('calColorBy', s.calColorBy || 'person', [['person', 'Osoba'], ['prio', 'Priorytet'], ['project', 'Projekt']]))
+      + prefRow('Numery tygodni', 'W widoku miesiąca', swBtn(!!s.calWeekNums, 'calWeekNums'))
+      + prefRow('Wydarzenia Google w kalendarzu', '', swBtn(s.gcalCal !== false, 'gcalCal')) + prefRow('Wydarzenia Google na ekranie Moje', '', swBtn(s.gcalToday !== false, 'gcalToday')));
+}
+
+// ---------- przypomnienie push o zaległych ----------
+async function nudgeOverdue(u, btn) {
+  const n = state.tasks.filter(t => !t.completed && t.kind !== 'event' && t.due && t.due < todayStr() && t.assignees.includes(u)).length;
+  if (DEMO) {
+    btn.disabled = true; btn.textContent = 'Wysłano ✓';
+    toast(`👋 ${firstName(u)} dostanie powiadomienie push: „Masz ${n} ${plural(n, 'zadanie', 'zadania', 'zadań')} po terminie” (w demo to tylko symulacja)`);
+    return;
+  }
+  btn.disabled = true;
+  const { error } = await auth.sb.rpc('nudge_overdue', { ws: team.ws.id, target: u });
+  if (error) { btn.disabled = false; toast(/limit/i.test(error.message) ? 'Przypomnienie do tej osoby wysłano niedawno – spróbuj za godzinę' : 'Nie udało się wysłać: ' + error.message); return; }
+  btn.textContent = 'Wysłano ✓'; toast(`👋 Wysłano przypomnienie do: ${memberName(u)}`);
+}
+
+// ---------- pasek przewijania na górze (Zespół i kalendarz zespołu) ----------
+function hscrollTop() {
+  $$('.team-board, .cal2.team .tg').forEach(el => {
+    if (el.previousElementSibling?.classList.contains('hs-top')) el.previousElementSibling.remove();
+    if (el.scrollWidth <= el.clientWidth + 4) return;
+    const bar = document.createElement('div'); bar.className = 'hs-top'; bar.innerHTML = `<div style="width:${el.scrollWidth}px"></div>`;
+    el.before(bar); bar.scrollLeft = el.scrollLeft;
+    let lock = false;
+    bar.addEventListener('scroll', () => { if (lock) { lock = false; return; } lock = true; el.scrollLeft = bar.scrollLeft; }, { passive: true });
+    el.addEventListener('scroll', () => { if (lock) { lock = false; return; } lock = true; bar.scrollLeft = el.scrollLeft; }, { passive: true });
+  });
+}
+addEventListener('resize', () => { clearTimeout(ui.hsT); ui.hsT = setTimeout(hscrollTop, 200); });
+
+// ---------- przewodnik: nowe kroki ----------
+(() => {
+  const nav = TOUR.find(s => s.sel === '[data-tour="nav"]');
+  if (nav) { nav.title = 'Główne miejsca'; nav.text = '<b>Moje</b> – Twój plan: co teraz, dziś, jutro.<br><b>Zadania</b> – lista zespołu.<br><b>Kalendarz</b> – miesiąc, tydzień, dzień.<br><b>Zespół</b> – kto co robi.<br><b>Projekty</b>, <b>Zrobione</b> (historia) i <b>Raporty</b>.'; nav.view = { type: 'my' }; }
+  TOUR.forEach(s => { if (s.ch === 'Podstawy' && !s.sel) s.view = { type: 'my' }; if (s.sel === '[data-tour="add"]') s.view = { type: 'my' }; });
+  const at = TOUR.findIndex(s => s.ch === 'Zadania');
+  TOUR.splice(at, 0,
+    { ch: 'Moje', sel: '.my-hero', title: 'Twój ekran „Moje”', text: 'Od razu widzisz, ile zrobiłeś dziś, <b>na czym się skupić</b> i <b>co jest następne</b> w kalendarzu. Przyciski <b>Zaczynam</b> i <b>Zrobione</b> zmieniają status jednym kliknięciem.', view: { type: 'my' } },
+    { ch: 'Moje', sel: '.my-add', title: 'Szybkie dodawanie dla siebie', text: 'Wpisz zadanie i naciśnij Enter – trafi do Ciebie na dziś (albo jutro). Pod polem widać, co aplikacja rozpoznała: datę, godzinę, osobę, priorytet.', view: { type: 'my' } },
+    { ch: 'Moje', sel: '.my-grid', title: 'Dziś, jutro, ten tydzień', text: 'Twoje zadania ułożone według czasu. <b>Na teraz</b> to zaległe i rozpoczęte. W <b>Dostosuj</b> ukryjesz sekcje, których nie potrzebujesz.', view: { type: 'my' } });
+  const calW = TOUR.findIndex(s => s.sel === '.cal-src');
+  TOUR.splice(calW, 0,
+    { ch: 'Kalendarz', sel: '.cal-range', title: 'Zakres godzin', text: 'Ustaw, które godziny widać (np. 8–16) – siatka dopasuje się do ekranu i będzie czytelniejsza. Kliknij <b>nazwę dnia</b> nad kolumną, aby otworzyć kartę ze szczegółami dnia.', view: { type: 'calendar' }, cal: 'week' },
+    { ch: 'Kalendarz', sel: '.db-grid, .db-top', title: 'Widok „Dzień”', text: 'Dzień jako lista: <b>według osób</b> (kto co ma i o której) albo <b>według godzin</b>. Pasek dni u góry pozwala szybko przeskoczyć na inny dzień tygodnia.', view: { type: 'calendar' }, cal: 'day' });
+  const proj = TOUR.findIndex(s => s.ch === 'Projekty');
+  TOUR.splice(proj + 1, 0, { ch: 'Zrobione', sel: '.ar-bar, .ar-stats', title: 'Zrobione – historia', text: 'Wszystkie ukończone zadania: <b>kto</b>, <b>kiedy</b>, z jakiego <b>projektu</b> i czy <b>na czas</b>. Filtruj po okresie, osobie i projekcie, grupuj i wybieraj, co pokazywać.', view: { type: 'archive' } });
+  const fin = TOUR.find(s => s.ch === 'Koniec'); if (fin) fin.view = { type: 'my' };
+  TOUR_CH.length = 0; TOUR_CH.push(...new Set(TOUR.map(s => s.ch)));
+})();
+
+// ---------- po każdym rysowaniu ----------
+const v4BaseRender = render;
+render = function () {
+  v4BaseRender();
+  applyViewClasses();
+  hscrollTop();
+  if (ui.daySheet) drawDaySheet();
+};
+
 if (location.hostname === 'localhost') window.__lt = { get state() { return state; }, team, ui, render: () => render(), newTask, uid, todayStr, addDays, parseQuick, parseICS };
 render();
 save();

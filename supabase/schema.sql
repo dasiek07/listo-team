@@ -336,6 +336,69 @@ do $$ begin
   perform cron.schedule('listo-team-reminders', '* * * * *', 'select public.ws_send_reminders()');
 end $$;
 
+-- ---------- zadania po terminie: codzienne przypomnienie o 8:00 (czas zespołu) i „Przypomnij” z Raportów ----------
+create or replace function public.ws_send_overdue() returns void
+language plpgsql security definer set search_path = public as $$
+declare r record; n int; titles text; first_id text;
+begin
+  for r in
+    select m.workspace_id, m.user_id, w.timezone
+    from ws_members m join workspaces w on w.id = m.workspace_id
+    where extract(hour from now() at time zone w.timezone) = 8
+      and coalesce((select p.state->'settings'->>'overduePush' from team_prefs p where p.user_id = m.user_id), 'true') <> 'false'
+  loop
+    select count(*), string_agg(x.title, ', ' order by x.due), (array_agg(x.id order by x.due))[1]
+      into n, titles, first_id
+    from (
+      select i.id, coalesce(i.data->>'title', 'Zadanie') as title, i.data->>'due' as due
+      from ws_items i
+      where i.workspace_id = r.workspace_id and i.kind = 'task'
+        and coalesce((i.data->>'completed')::boolean, false) = false
+        and coalesce(i.data->>'kind', 'task') <> 'event'
+        and coalesce(i.data->>'due', '') ~ '^\d{4}-\d{2}-\d{2}$'
+        and (i.data->>'due')::date < (now() at time zone r.timezone)::date
+        and coalesce(i.data->'assignees', '[]'::jsonb) ? r.user_id::text
+      limit 50
+    ) x;
+    if n = 0 then continue; end if;
+    begin
+      insert into ws_reminders_sent (workspace_id, task_id, stamp) values (r.workspace_id, r.user_id::text, 'overdue ' || (now() at time zone r.timezone)::date);
+    exception when unique_violation then continue;
+    end;
+    insert into ws_notifications (workspace_id, user_id, kind, task_id, title, body)
+    values (r.workspace_id, r.user_id, 'overdue', case when n = 1 then first_id end,
+      case when n = 1 then 'Masz 1 zadanie po terminie' else 'Masz ' || n || ' zadań po terminie' end,
+      left(titles, 180));
+  end loop;
+end $$;
+revoke execute on function public.ws_send_overdue() from public, anon, authenticated;
+do $$ begin
+  perform cron.unschedule('listo-team-overdue') where exists (select 1 from cron.job where jobname = 'listo-team-overdue');
+  perform cron.schedule('listo-team-overdue', '5 * * * *', 'select public.ws_send_overdue()');
+end $$;
+
+create or replace function public.nudge_overdue(ws uuid, target uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare n int; who text;
+begin
+  if not public.is_member(ws) or not exists (select 1 from ws_members where workspace_id = ws and user_id = target) then raise exception 'forbidden'; end if;
+  select count(*) into n from ws_items i
+  where i.workspace_id = ws and i.kind = 'task'
+    and coalesce((i.data->>'completed')::boolean, false) = false
+    and coalesce(i.data->>'due', '') ~ '^\d{4}-\d{2}-\d{2}$' and (i.data->>'due')::date < current_date
+    and coalesce(i.data->'assignees', '[]'::jsonb) ? target::text;
+  if n = 0 then raise exception 'brak zaległych zadań'; end if;
+  begin
+    insert into ws_reminders_sent (workspace_id, task_id, stamp) values (ws, target::text, 'nudge ' || to_char(now(), 'YYYY-MM-DD HH24'));
+  exception when unique_violation then raise exception 'limit: przypomnienie wysłano w tej godzinie';
+  end;
+  select coalesce(name, 'Ktoś z zespołu') into who from ws_members where workspace_id = ws and user_id = auth.uid();
+  insert into ws_notifications (workspace_id, user_id, actor_id, kind, title, body)
+  values (ws, target, auth.uid(), 'nudge', 'Przypomnienie o zaległych zadaniach', who || ' przypomina: masz ' || n || case when n = 1 then ' zadanie' when n < 5 then ' zadania' else ' zadań' end || ' po terminie');
+end $$;
+revoke execute on function public.nudge_overdue(uuid, uuid) from public, anon;
+grant execute on function public.nudge_overdue(uuid, uuid) to authenticated;
+
 -- ---------- zmiany na żywo (Realtime) ----------
 do $$
 declare t text;

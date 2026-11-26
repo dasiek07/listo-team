@@ -12,12 +12,19 @@ a każda zmiana synchronizuje się na żywo na wszystkich urządzeniach całego 
   Kliknij lewą/środkową/prawą część albo przeciągnij gałkę.
 - **Osoby**: przypisuj zadania (przycisk z awatarem, „Osoby” w formularzu albo wpisz `+Imię` w nazwie). Przypisana osoba dostaje powiadomienie.
 - **Zadania i wydarzenia** z godziną lub przedziałem czasu: `jutro 10:00-11:30`, `od 9 do 11`, `pt 14:00 przez 2h`.
-- **Kalendarz**: Miesiąc, Tydzień, Dzień (siatka godzin), **Zespół** (kolumna dla każdej osoby) i Lista.
+- **Moje** – osobisty ekran każdej osoby: co teraz trwa, co następne, na czym się skupić, zaległe, dziś, jutro, ten tydzień,
+  zadania zlecone innym i zrobione dziś. Szybkie dodawanie zadań dla siebie (z podglądem rozpoznanej daty, godziny i osoby).
+- **Kalendarz**: Miesiąc (z panelem szczegółów dnia), Tydzień, **Dzień** (lista: według osób albo według godzin), **Zespół** (kolumna dla każdej osoby) i Lista.
+  Przycisk z godzinami ustawia **zakres godzin** (np. 8–16). Kliknięcie nazwy dnia w tygodniu otwiera **kartę dnia**.
   Przeciągnij po pustych godzinach, aby dodać wydarzenie; przeciągnij blok, aby go przenieść (także na inną osobę); dolną krawędź – aby zmienić długość.
+- **Zrobione** – historia ukończonych zadań: kto, kiedy, z jakiego projektu, czy na czas (filtry: okres, osoba, projekt, tylko po terminie; grupowanie).
 - **Kalendarze Google** – zespołowe (widzi każdy) i osobiste (tylko Ty). Przycisk „Kalendarze” pozwala wybrać, co widać w danej chwili.
-- **Widoki**: Start, Skrzynka, Dziś, Moje zadania, Zespół (tablica osób + obciążenie na 14 dni), Nadchodzące, Kalendarz, Filtry i etykiety, Raportowanie, Ukończone.
-- **Filtr osób** w górnym pasku (Wszyscy / Ja / Nieprzypisane / konkretna osoba) – działa w Dziś, Nadchodzących i Kalendarzu.
-- **Powiadomienia push** (także przy zamkniętej aplikacji): przypisanie, zmiana statusu, komentarz, przypomnienie przed godziną zadania.
+- **Menu**: Moje, Zadania (Dziś / Nadchodzące / Wszystkie), Kalendarz, Zespół (tablica osób + obciążenie na 14 dni), Projekty, Zrobione, Raporty.
+- **Filtr osób** (Moje / Cały zespół / konkretna osoba / Nieprzypisane) – działa w Zadaniach i Kalendarzu.
+- **Ustawienia → Widok**: co dzieje się z ukończonymi zadaniami (znikają od razu / zostają 1 godz. / do końca dnia / 24 godz.),
+  co widać w wierszu zadania, które sekcje ma ekran Moje, zakres godzin i kolory kalendarza.
+- **Powiadomienia push** (także przy zamkniętej aplikacji): przypisanie, zmiana statusu, komentarz, przypomnienie przed godziną zadania,
+  codziennie o 8:00 lista zadań po terminie oraz „Przypomnij” wysyłane z Raportów.
 
 ## Pierwsze uruchomienie (właściciel firmy)
 
@@ -51,7 +58,7 @@ Zadanie możesz też dodać do swojego Kalendarza Google przyciskiem w oknie zad
   `ws_notifications`, `push_subs`, `team_prefs`. Dostęp chronią reguły RLS: każdy widzi tylko zespoły, do których należy.
 - Synchronizacja: zmiany wysyłane są jako różnice, a zmiany innych osób przychodzą przez Supabase Realtime. Działa też offline – wysyła po powrocie internetu.
 - Powiadomienia: wyzwalacz w bazie tworzy powiadomienie → funkcja **push** (Supabase Edge Function) wysyła Web Push (klucze VAPID w schemacie `private`).
-  Przypomnienia wysyła co minutę zadanie `pg_cron`.
+  Przypomnienia wysyła co minutę zadanie `pg_cron`, a co godzinę (o 8:00 czasu zespołu) – przypomnienia o zadaniach po terminie (`ws_send_overdue`).
 - Kalendarze: funkcja **ical** pobiera link iCal z uprawnieniami zalogowanej osoby, a aplikacja rozwija powtarzające się wydarzenia.
 
 Pliki serwera: `supabase/schema.sql` (baza – można uruchamiać wielokrotnie), `supabase/functions/push`, `supabase/functions/ical`.
