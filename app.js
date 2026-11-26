@@ -21,9 +21,9 @@ const COLORS = [
 ];
 // ustawienia – obecny wygląd i zachowanie to wartości domyślne
 const PREF_DEFAULTS = {
-  startView: 'home', density: 'normal', scale: 100, anim: 'full', splash: false, confetti: false, navColors: true, showDesc: true,
+  startView: 'tasks', density: 'normal', scale: 100, anim: 'full', splash: false, confetti: false, navColors: true, showDesc: false,
   hiddenNav: [], hiddenCards: [], voiceAuto: false, hoverFx: false,
-  navOrder: [], cardOrder: [], tileEdit: false, navCounts: true, gcalCal: true, gcalUp: true, gcalToday: true, calWeekNums: false, calHidden: [], who: 'all', calStartHour: 7,
+  navOrder: [], cardOrder: [], tileEdit: false, navCounts: true, gcalCal: true, gcalUp: true, gcalToday: true, calWeekNums: false, calHidden: [], who: 'me', calStartHour: 7,
 };
 const PREF_FALSE = ['voiceAuto', 'tileEdit', 'calWeekNums'];   // przełączniki domyślnie wyłączone
 const PREF_REDRAW = ['tileEdit', 'gcalCal', 'gcalUp', 'gcalToday', 'calWeekNums'];
@@ -404,7 +404,7 @@ function hashView() {
   const h = decodeURIComponent(location.hash.slice(1));
   const i = h.search(/[-/]/);
   const type = i < 0 ? h : h.slice(0, i), id = i < 0 ? '' : h.slice(i + 1);
-  if (['home', 'today', 'upcoming', 'inbox', 'filters', 'completed', 'search', 'reports', 'calendar', 'prefs', 'guide', 'mine', 'team'].includes(type)) return { type };
+  if (['tasks', 'projects', 'home', 'today', 'upcoming', 'inbox', 'filters', 'completed', 'search', 'reports', 'calendar', 'prefs', 'guide', 'mine', 'team'].includes(type)) return { type };
   if (type === 'person' && id) return { type, id };
   if (type === 'project' && proj(id)) return id === 'inbox' ? { type: 'inbox' } : { type, id };
   if (type === 'label' && label(id)) return { type, id };
@@ -502,75 +502,6 @@ function render() {
 
 // ---------- pasek boczny ----------
 const navAnim = { key: null, top: null, at: -1e9, from: 0, counts: {}, bump: {} };
-function renderSidebar() {
-  $('#app').classList.toggle('sb-closed', !ui.sidebar);
-  const td = todayStr(), act = active(), v = ui.view;
-  const overdue = act.some(t => t.due && t.due < td);
-  const cnt = { inbox: act.filter(t => t.projectId === 'inbox').length, today: act.filter(t => t.due && t.due <= td).length };
-  const nav = (type, icon, text, count, alert) => (state.settings.hiddenNav || []).includes(type) && v.type !== type ? '' : `<button class="nav-item ${v.type === type ? 'active' : ''}" data-act="nav" data-view="${type}" style="--nc:${NAV_HUE[type] || 'var(--accent)'}">${icon}<span class="name">${text}</span>${count ? `<span class="count ${alert ? 'alert' : ''}">${count}</span>` : ''}</button>`;
-  const projItem = p => {
-    const c = act.filter(t => t.projectId === p.id).length;
-    const on = v.type === 'project' && v.id === p.id;
-    const hashColor = p.color && p.color !== '#808080' ? `style="color:${p.color}"` : '';
-    const exp = sbExpanded(p.id) && p.sections.length;
-    return `<div class="nav-item proj ${on ? 'active' : ''} ${p.sections.length ? 'has-secs' : ''}" data-act="nav" data-view="project" data-id="${p.id}" data-drop="project" data-pid="${p.id}" role="button" tabindex="0">
-      ${p.sections.length ? `<button class="sb-caret ${exp ? 'open' : ''}" data-act="sb-exp" data-id="${p.id}" title="${exp ? 'Ukryj' : 'Pokaż'} sekcje" aria-label="Pokaż sekcje">${I.chevron}</button>` : ''}
-      <span class="hash" ${hashColor}>#</span><span class="name">${esc(p.name)}</span><span class="count">${c || ''}</span>
-      <button class="icon-btn more" data-act="proj-menu" data-id="${p.id}" title="Więcej" aria-label="Opcje projektu">${I.dots}</button></div>
-      ${exp ? `<div class="sb-secs">${p.sections.map((s, i) => { const sc = act.filter(t => t.projectId === p.id && t.sectionId === s.id).length; return `<button class="nav-item sb-sec" data-act="sb-sec" data-pid="${p.id}" data-sid="${s.id}" style="--d:${i}" data-drop="section" data-sid2="${s.id}"><span class="sb-sec-dot" ${hashColor}></span><span class="name">${esc(s.name)}</span><span class="count">${sc || ''}</span></button>`; }).join('')}</div>` : ''}`;
-  };
-  const favs = userProjects().filter(p => p.favorite);
-  const name = state.settings.userName || 'Ja';
-  const sbEl = $('#sidebar');
-  // animacje menu przetrwają kolejne przerysowania (np. po przejściu widoku)
-  const animateNav = () => {
-    if (REDUCED) return;
-    const now = performance.now(), na = $('.nav-item.active', sbEl);
-    if (na) {
-      const key = na.dataset.view + (na.dataset.id || '');
-      if (navAnim.key && key !== navAnim.key && navAnim.top != null) { navAnim.from = navAnim.top - na.offsetTop; navAnim.at = now; }
-      const el = now - navAnim.at;
-      if (el < 420 && navAnim.from) {
-        na.style.setProperty('--from', navAnim.from + 'px');
-        na.style.animationDelay = (-el) + 'ms';
-        na.classList.add('slide');
-      }
-      navAnim.key = key; navAnim.top = na.offsetTop;
-    }
-    $$('.nav-item[data-view]', sbEl).forEach(n => {
-      const k = n.dataset.view + (n.dataset.id || ''), c = $('.count', n), txt = c ? c.textContent : '';
-      if (k in navAnim.counts && navAnim.counts[k] !== txt && txt) navAnim.bump[k] = now;
-      navAnim.counts[k] = txt;
-      const e = now - (navAnim.bump[k] || -1e9);
-      if (c && e < 450) { c.style.animationDelay = (-e) + 'ms'; c.classList.add('bump'); }
-    });
-  };
-  sbEl.innerHTML = `
-    <div class="sb-top">
-      <button class="user" data-act="user-menu" title="Konto i ustawienia"><span class="avatar">${esc(name[0].toUpperCase())}</span><span>${esc(name)}</span>${I.chevronDown}</button>
-      <div class="sb-tools">
-        <span class="sync-badge" data-s="${sync.status}" title="${SYNC_LABEL[sync.status]}" ${sync.status === 'local' ? 'hidden' : ''}>${I.cloud}</span>
-        <button class="icon-btn" data-act="nav" data-view="search" title="Szukaj (/)">${sz(I.search, 20)}</button>
-        <button class="icon-btn" data-act="notifications" title="Powiadomienia">${I.bell}</button>
-        <button class="icon-btn" data-act="toggle-sidebar" title="Zwiń menu (M)">${I.sidebar}</button>
-      </div>
-    </div>
-    <button class="nav-item add-btn" data-act="quick-add" title="Szybkie dodawanie (Q)"><span class="add-circle">${I.plus}</span><span>Dodaj zadanie</span></button>
-    ${navOrder().map(k => { const d = NAV_DEF[k]; if (!d) return ''; const h = nav(k, d.icon(), d.label, d.count ? d.count(act, cnt) : '', k === 'today' && overdue); return k === 'inbox' ? `<div data-drop="project" data-pid="inbox">${h}</div>` : h; }).join('')}
-    <div class="sb-group">
-      <div class="sb-head">
-        <button class="sb-title" data-act="collapse" data-key="projects">Projekty</button>
-        <button class="icon-btn" data-act="add-project" title="Dodaj projekt">${I.plus}</button>
-        <button class="icon-btn caret ${ui.collapsed.projects ? 'closed' : ''}" data-act="collapse" data-key="projects" title="Zwiń">${I.chevron}</button>
-      </div>
-      ${ui.collapsed.projects ? '' : [...favs, ...userProjects().filter(p => !p.favorite)].map(projItem).join('')}
-    </div>
-    <div class="sb-foot">
-      ${nav('prefs', I.gear, 'Ustawienia')}
-      <button class="nav-item ${v.type === 'guide' ? 'active' : ''}" data-act="nav" data-view="guide" style="--nc:${NAV_HUE.guide}">${I.help}<span class="name">Pomoc i poradnik</span></button>
-    </div>`;
-  animateNav();
-}
 
 // ---------- główny widok ----------
 // Nagłówek w treści + dane dla górnego paska (tytuł pokazuje się po przewinięciu)
@@ -588,14 +519,16 @@ function renderMain() {
   const key = viewHash(ui.view);
   const prevScroll = $('.content', main)?.scrollTop || 0;
   let body = '', wide = false;
-  const v = ui.view;
+  let v = ui.view;
+  const TMAP = { home: 'today', today: 'today', mine: 'all', upcoming: 'upcoming', completed: 'done' };
+  if (TMAP[v.type]) { ui.taskTab = TMAP[v.type]; if (v.type === 'mine') state.settings.who = 'me'; ui.view = v = { type: 'tasks' }; try { history.replaceState(null, '', '#tasks'); } catch (e) { /* */ } }
   ui.bar = { title: '', icon: '', crumb: '', right: '' };
   ui.rowIdx = 0;
   switch (v.type) {
-    case 'home': body = renderHome(); wide = true; break;
+    case 'tasks': body = renderTasks(); break;
+    case 'projects': body = renderProjects(); wide = true; break;
     case 'prefs': body = renderPrefs(); break;
     case 'guide': body = renderGuide(); wide = true; break;
-    case 'mine': body = renderMine(); break;
     case 'team': body = renderTeam(); wide = true; break;
     case 'person': body = renderPerson(v.id); break;
     case 'inbox': body = renderProjectView(proj('inbox')); wide = proj('inbox').view === 'board'; break;
@@ -2382,7 +2315,7 @@ setInterval(() => { const c = $('#home-clock'); if (c) c.textContent = nowHM(); 
 //  v9 – kolory zakładek, ustawienia, poradnik, nawyki, głos, ekran startowy
 // ================================================================
 const NAV_HUE = {
-  home: 'var(--accent)', search: '#8f9aa6', inbox: '#4f8ff7', today: '#3ec26a', upcoming: '#9466f0', calendar: '#f5a531', mine: '#ff6f61', team: '#2bb5a3', person: '#2bb5a3',
+  tasks: '#3ec26a', projects: '#4f8ff7', home: 'var(--accent)', search: '#8f9aa6', inbox: '#4f8ff7', today: '#3ec26a', upcoming: '#9466f0', calendar: '#f5a531', mine: '#ff6f61', team: '#2bb5a3', person: '#2bb5a3',
   filters: '#e05194', label: '#e05194', filter: '#e05194', reports: '#14aaf5',
   completed: '#3ec26a', prefs: '#8f9aa6', guide: '#4f8ff7',
 };
@@ -3477,6 +3410,7 @@ async function openWorkspace(ws) {
   pushAutoResubscribe();
   ui.quiet = true; render();
   openDeepTask();
+  setTimeout(maybeOfferTour, 1500);
 }
 async function createWorkspace(name, myName) {
   const { data, error } = await auth.sb.rpc('create_workspace', { ws_name: name, member_name: myName || state.settings.userName || '' });
@@ -3668,8 +3602,6 @@ function taskRow(t, o = {}) {
         <button class="restore-btn" data-act="toggle" data-id="${t.id}" title="Przywróć do listy zadań">${sz(I.repeat, 14)} Przywróć</button>
         <button class="icon-btn" data-act="task-del" data-id="${t.id}" title="Usuń na stałe">${I.trash}</button>
       </div>` : `<div class="task-actions">
-        <button class="icon-btn" data-act="task-edit" data-id="${t.id}" title="Edytuj">${I.edit}</button>
-        <button class="icon-btn" data-act="task-date" data-id="${t.id}" title="Ustaw termin">${I.calBig}</button>
         <button class="icon-btn" data-act="task-more" data-id="${t.id}" title="Więcej akcji">${I.dots}</button>
       </div>`}
     </div>
@@ -3927,12 +3859,6 @@ function personTasksHtml(uid0, mine) {
   if (!list.length) html += emptyState(mine ? 'Nie masz przypisanych zadań' : 'Brak przypisanych zadań', mine ? 'Gdy ktoś przypisze Ci zadanie, pojawi się tutaj – dostaniesz też powiadomienie.' : 'Przeciągnij zadanie na tę osobę w widoku Zespół albo wpisz +imię przy dodawaniu.');
   return html;
 }
-function renderMine() {
-  const list = myOpen(), prog = list.filter(t => stOf(t) === 1).length;
-  const done7 = state.tasks.filter(t => t.completed && t.completedBy === me() && t.completedAt > Date.now() - 7 * 864e5).length;
-  return header('Moje zadania', { icon: avatar(me(), 26), iconCls: 'plain',
-    sub: `${list.length} ${plural(list.length, 'otwarte', 'otwarte', 'otwartych')} · ${prog} w trakcie · ${done7} ${plural(done7, 'ukończone', 'ukończone', 'ukończonych')} w 7 dni` }) + personTasksHtml(me(), true);
-}
 function renderPerson(uid0) {
   if (!member(uid0)) return emptyState('Nie znaleziono osoby', 'Ta osoba nie należy już do zespołu.');
   const m = member(uid0), list = openAll().filter(t => t.assignees.includes(uid0));
@@ -4045,14 +3971,6 @@ function notifications(anchor) {
 }
 
 // ---------- dolny pasek na telefonie ----------
-function renderTabbar() {
-  let tb = $('#tabbar');
-  if (!tb) { tb = document.createElement('nav'); tb.id = 'tabbar'; tb.setAttribute('aria-label', 'Nawigacja'); document.body.appendChild(tb); }
-  const td = todayStr(), n = myOpen().filter(t => t.due && t.due <= td).length, v = ui.view.type;
-  const items = [['home', I.home, 'Start'], ['mine', I.person, 'Moje'], ['calendar', I.calMonth, 'Kalendarz'], ['team', I.team, 'Zespół']];
-  tb.innerHTML = items.map(([k, ic, l]) => `<button class="${v === k && !ui.sidebar ? 'on' : ''}" data-act="nav" data-view="${k}" aria-label="${l}"><span class="tb-ic">${ic}${k === 'mine' && n ? `<b>${n > 99 ? '99+' : n}</b>` : ''}</span><span class="tb-l">${l}</span></button>`).join('')
-    + `<button class="${ui.sidebar && isNarrow() ? 'on' : ''}" data-act="tb-more" aria-label="Menu"><span class="tb-ic">${I.menu}</span><span class="tb-l">Menu</span></button>`;
-}
 
 // ================================================================
 //  Kalendarze Google (link iCal) – zespołowe (widzi każdy) i osobiste (tylko Ty)
@@ -4298,7 +4216,7 @@ function renderCalendar() {
   const base = calBase(mode), sel = ui.calSel || td;
   const nCal = team.cals.length, errs = team.cals.filter(c => team.ev[c.id]?.err);
   let html = header(`<span class="cal2-title">${calTitle(mode, base)}</span>`, { icon: sz(I.calMonth, 24), iconCls: 'tile', barTitle: 'Kalendarz',
-    sub: `<span class="cal-legend">${nCal ? `${nCal} ${plural(nCal, 'kalendarz Google', 'kalendarze Google', 'kalendarzy Google')}` : '<button class="link-btn" data-act="pref-open" data-t="calendars">+ Podłącz Kalendarz Google</button>'}${errs.length ? ` · <span style="color:var(--due-overdue)" title="${esc(errs.map(c => c.name + ': ' + team.ev[c.id].err).join('\n'))}">${errs.length} z błędem</span>` : ''}</span>`,
+    after: whoChips(),
     after: team.members.length ? `<div class="cal-people">${[['all', sz(I.team, 15), 'Wszyscy'], ...team.members.map(m => [m.user_id, avatar(m.user_id, 20), firstName(m.user_id)]), ['none', '<span class="av none" style="--s:20px">?</span>', 'Nieprzypisane']].map(([v, ic, l]) => { const w = state.settings.who || 'all', on = w === v || (v === me() && w === 'me'); return `<button class="cp-chip ${on ? 'on' : ''}" data-act="cal-who" data-w="${v}" style="--c:${v === 'all' || v === 'none' ? 'var(--accent)' : memberColor(v)}">${ic}<span>${esc(l)}</span></button>`; }).join('')}</div>` : '',
     right: `<div class="seg-inline cal-modes">${CAL_MODES.map(([v, l]) => `<button class="${mode === v ? 'sel' : ''}" data-act="cal-mode" data-v="${v}">${l}</button>`).join('')}</div>
       <div class="cal2-nav">${mode === 'agenda' ? '' : `<button class="icon-btn" data-act="cal-step" data-n="-1" title="Wstecz">${I.left}</button>`}<button class="btn" data-act="cal-step" data-n="0">Dziś</button>${mode === 'agenda' ? '' : `<button class="icon-btn" data-act="cal-step" data-n="1" title="Dalej">${I.right}</button>`}</div>
@@ -4551,7 +4469,7 @@ navigator.serviceWorker?.addEventListener?.('message', e => { const id = e.data?
 // ================================================================
 //  Ustawienia z zakładkami
 // ================================================================
-const PREF_TABS = [['general', 'Ogólne', () => I.gear], ['team', 'Zespół', () => I.team], ['calendars', 'Kalendarze', () => I.calMonth], ['notif', 'Powiadomienia', () => I.bell], ['theme', 'Motyw', () => I.moon], ['sidebar', 'Pasek boczny', () => I.sidebar], ['account', 'Konto', () => I.cloud]];
+const PREF_TABS = [['general', 'Ogólne', () => I.gear], ['tour', 'Przewodnik', () => I.compass], ['team', 'Zespół', () => I.team], ['calendars', 'Kalendarze', () => I.calMonth], ['notif', 'Powiadomienia', () => I.bell], ['theme', 'Motyw', () => I.moon], ['account', 'Konto', () => I.cloud]];
 function renderPrefs() {
   const s = state.settings, tab = PREF_TABS.some(t => t[0] === ui.prefTab) ? ui.prefTab : 'general';
   let html = header('Ustawienia', { icon: sz(I.gear, 24), iconCls: 'tile', sub: team.ws ? `Zespół: <b>${esc(team.ws.name)}</b>` : 'Wygląd, zespół, kalendarze i powiadomienia' });
@@ -4569,7 +4487,6 @@ function renderPrefs() {
       + prefRow('Numery tygodni', 'W widoku miesiąca', swBtn(!!s.calWeekNums, 'calWeekNums'))
       + prefRow('Wydarzenia Google w Nadchodzących', '', swBtn(s.gcalUp !== false, 'gcalUp')) + prefRow('Wydarzenia Google na Starcie', '', swBtn(s.gcalToday !== false, 'gcalToday')))
       + sec(3, 'Animacje', prefRow('Animacje', 'Płynne przejścia między widokami', segBtns('anim', s.anim, [['full', 'Włączone'], ['off', 'Wyłączone']])))
-      + sec(4, 'Strona Start', `<p class="pf-p">Pokaż tylko potrzebne kafelki.</p><div class="pf-checks">${cardOpts.map(([k, l]) => `<button class="pf-chk ${(s.hiddenCards || []).includes(k) ? '' : 'on'}" data-act="pref-card" data-v="${k}"><span>${l}</span><i>${I.checkSmall}</i></button>`).join('')}</div>`)
       + sec(5, 'Dodawanie głosem', prefRow('Status', (dictNS || SpeechRec) ? '<span class="ok-txt">Rozpoznawanie mowy dostępne</span>' : 'Niedostępne w tym oknie', `<button class="btn sm" data-act="voice">${sz(I.mic, 14)} Wypróbuj</button>`)
       + prefRow('Dodawaj od razu', 'Po zakończeniu mówienia bez potwierdzania', swBtn(!!s.voiceAuto, 'voiceAuto')))
       + sec(6, 'Przywracanie', prefRow('Ustawienia domyślne', 'Wygląd i zachowanie jak na początku (zadania zostają)', `<button class="btn sm" data-act="pref-reset">Przywróć</button>`));
@@ -4614,6 +4531,8 @@ function renderPrefs() {
       + `<p class="pf-p">Włącz powiadomienia na każdym urządzeniu (telefon, laptop), na którym chcesz je dostawać.</p>`)
       + sec(1, 'Kiedy dostaniesz powiadomienie', `<ul class="pf-ul"><li>👤 ktoś <b>przypisze Ci zadanie</b> lub wydarzenie,</li><li>🔄 zmieni się <b>status</b> zadania, które utworzyłeś lub które jest Twoje (w trakcie / ukończone),</li><li>💬 ktoś doda <b>komentarz</b> do Twojego zadania,</li><li>⏰ zbliża się <b>godzina</b> zadania lub wydarzenia z przypisaniem (domyślnie 10 min wcześniej – zmienisz w oknie zadania).</li></ul>
         <p class="muted small">Nie dostajesz powiadomień o własnych zmianach. Lista ostatnich powiadomień jest pod dzwonkiem w menu.</p>`);
+  } else if (tab === 'tour') {
+    body = tourPrefsHtml();
   } else if (tab === 'theme') {
     const cur = s.accent || 'todoist';
     body = sec(0, 'Tryb', `<div class="seg-inline th-modes">${[['dark', 'Ciemny'], ['light', 'Jasny'], ['auto', 'Systemowy']].map(([v, l]) => `<button class="${s.theme === v ? 'sel' : ''}" data-act="pref" data-k="theme" data-v="${v}"><span class="th-mp ${v}"><i></i><i></i><i></i></span><span>${l}</span></button>`).join('')}</div>`)
@@ -4741,7 +4660,7 @@ openQuick = function () {
   ui.modal = { type: 'quick' };
   openForm('quick', d);
 };
-const WHO_VIEWS = ['today', 'upcoming', 'filters', 'label', 'filter', 'search', 'inbox', 'project'];
+const WHO_VIEWS = [];
 const teamBaseRender = render;
 render = function () {
   teamBaseRender();
@@ -4753,7 +4672,7 @@ render = function () {
   const u = $('#sidebar .user');
   if (u && team.ws && !$('.ws-name', u)) (u.querySelector(':scope > span:not(.avatar):not(.av)') || u).insertAdjacentHTML('beforeend', `<small class="ws-name">${esc(team.ws.name)}</small>`);
   if (u && (auth.user || DEMO)) { const av = $('.avatar', u); if (av) av.outerHTML = avatar(me(), 26); }
-  if (DEMO && !$('.demo-bar')) $('#main')?.insertAdjacentHTML('afterbegin', '<div class="demo-bar"><b>Wersja demo</b><span>Przykładowa firma „Studio Nova” – zmiany nie są nigdzie zapisywane.</span><button class="btn sm" data-act="demo-exit">Zakończ demo</button></div>');
+  if (DEMO && !$('.demo-bar')) $('#main')?.insertAdjacentHTML('afterbegin', `<div class="demo-bar"><b>Wersja demo</b><span>Przykładowa firma „Studio Nova” – zmiany nie są nigdzie zapisywane.</span><button class="btn sm demo-live ${demoLive.on ? 'on' : ''}" data-act="demo-live" title="Symuluje pracę zespołu: co jakiś czas ktoś zmienia status lub komentuje">${demoLive.on ? '● Zespół na żywo: wł.' : '○ Zespół na żywo: wył.'}</button><button class="btn sm" data-act="tour-start" data-i="0">Przewodnik</button><button class="btn sm" data-act="demo-exit">Zakończ demo</button></div>`);
   renderNotifBadge();
   const sc = $('.tg-scroll');
   if (sc) {
@@ -4788,81 +4707,7 @@ function dayPlan(d, list) {
   return [...list.map(t => ({ t, k: t.time || '00:00' })), ...g].sort((a, b) => a.k.localeCompare(b.k));
 }
 // ---------- Dziś ----------
-function renderToday() {
-  const td = todayStr(), act = active();
-  const overdue = act.filter(t => t.kind !== 'event' && t.due && t.due < td).sort(byDue);
-  const todayAll = act.filter(t => t.due === td || (t.endDue && t.due < td && td <= t.endDue));
-  const events = todayAll.filter(t => t.kind === 'event').sort(byDue);
-  const tasks = todayAll.filter(t => t.kind !== 'event').sort((a, b) => stOf(b) - stOf(a) || byDue(a, b));
-  const plan = dayPlan(td, events);
-  const done = state.tasks.filter(t => t.completed && t.completedAt && fmtDate(new Date(t.completedAt)) === td && whoOk(t)).length;
-  let html = header('Dziś', { icon: todayIcon(), iconCls: 'soft-red',
-    sub: `${dateLong(td)} · <b>${tasks.length}</b> ${plural(tasks.length, 'zadanie', 'zadania', 'zadań')} · <b>${plan.length}</b> w kalendarzu${done ? ` · <span class="ok-txt">${done} ukończone</span>` : ''}` });
-  if (overdue.length) html += `<div class="group"><div class="group-head"><button class="caret ${ui.collapsed.overdue ? 'closed' : ''}" data-act="collapse" data-key="overdue">${I.chevron}</button><h3 class="red-h">Po terminie</h3><span class="count">${overdue.length}</span><button class="btn ghost accent" data-act="reschedule-overdue" title="Przełóż wszystkie zaległe na dziś">Przełóż na dziś</button></div>
-    ${cbox('overdue', overdue.map(t => taskRow(t, { showProject: true })).join(''))}</div>`;
-  if (plan.length) html += `<div class="group"><div class="group-head"><h3>Plan dnia</h3><span class="count">${plan.length}</span><button class="btn ghost" data-act="cal-goday" data-date="${td}" title="Otwórz w kalendarzu">${sz(I.calMonth, 15)} Kalendarz</button></div><div class="pl-list">${plan.map(planRow).join('')}</div></div>`;
-  html += `<div class="group" data-drop="day" data-date="${td}"><div class="group-head"><h3>Zadania na dziś</h3><span class="count">${tasks.length || ''}</span></div>
-    ${tasks.map(t => taskRow(t, { showProject: true, hideToday: true })).join('')}${addTaskButton('today', { due: td })}</div>`;
-  if (!tasks.length && !overdue.length && !plan.length && !(ui.addForm && ui.addForm.ctx === 'today')) html += emptyState('Na dziś nic nie zaplanowano', 'Dodaj zadanie albo zajrzyj do Nadchodzących.');
-  return html;
-}
 // ---------- Start ----------
-function renderHome() {
-  const td = todayStr(), now = new Date(), hr = now.getHours();
-  const name = (state.settings.userName || '').replace(/\(.*?\)/g, '').trim().split(/\s+/)[0];
-  const greet = hr < 5 ? 'Dobrej nocy' : hr < 12 ? 'Dzień dobry' : hr < 18 ? 'Dzień dobry' : 'Dobry wieczór';
-  ui.bar = { title: 'Start', icon: '', crumb: '', right: '' };
-  const all = openAll(), mine = myOpen();
-  const mProg = mine.filter(t => stOf(t) === 1).sort(byDue);
-  const mOver = mine.filter(t => t.due && t.due < td && stOf(t) !== 1).sort(byDue);
-  const mToday = mine.filter(t => t.due === td && stOf(t) !== 1).sort(byDue);
-  const myEv = state.tasks.filter(t => t.kind === 'event' && !t.completed && (t.due === td || (t.endDue && t.due <= td && td <= t.endDue)) && t.assignees.includes(me())).sort(byDue);
-  const plan = dayPlan(td, myEv);
-  const unassigned = all.filter(t => !t.assignees.length).sort(byDue);
-  const doneToday = state.tasks.filter(t => t.completed && t.completedAt && fmtDate(new Date(t.completedAt)) === td).length;
-  const focus = [...mProg, ...mOver, ...mToday];
-  const nextPlan = plan.find(x => (x.t?.time || x.e?.time || '') >= nowHM());
-  const parts = [focus.length ? `Masz dziś <b>${focus.length}</b> ${plural(focus.length, 'zadanie', 'zadania', 'zadań')}` : 'Na dziś nie masz już zadań'];
-  if (mOver.length) parts.push(`<b class="hm-red">${mOver.length}</b> po terminie`);
-  if (plan.length) parts.push(`<b>${plan.length}</b> w kalendarzu${nextPlan ? ` – najbliższe o <b>${nextPlan.t?.time || nextPlan.e?.time}</b>` : ''}`);
-  const hidden = state.settings.hiddenCards || [];
-  const card = (key, cls, title, body, extra = '') => hidden.includes(key) ? '' : `<section class="hm-card ${cls}" data-card="${key}"><div class="hm-card-h"><h2>${title}</h2>${extra}</div>${body}</section>`;
-  const mini = t => { const di = dueLabel(t); return `<div class="task-wrap"><div class="task hm-row st-${stOf(t)}" data-id="${t.id}">${stSlider(t)}
-      <div class="grow hm-row-main" data-act="open" data-id="${t.id}"><span class="hm-row-t">${t.priority < 4 ? `<span class="pflag">${flagIcon(t.priority, 12)}</span>` : ''}${esc(t.title)}</span><span class="hm-row-m">${di ? `<span class="due-txt ${di.cls}">${di.label}</span> · ` : ''}${esc(projName(proj(t.projectId)))}</span></div>
-      ${t.assignees.filter(a => a !== me()).length ? avatars(t.assignees.filter(a => a !== me()), 20, 2) : ''}</div></div>`; };
-  const go = (v, t = 'Pokaż wszystko') => `<button class="hm-link" data-act="nav" data-view="${v}">${t} ${sz(I.right, 13)}</button>`;
-  let html = `<div class="home">
-  <section class="hm-hero2">
-    <div class="hm-h-top"><div><h1>${greet}${name ? `, ${esc(name)}` : ''}</h1><p class="hm-date">${dateLong(td)}${team.ws ? ` · ${esc(team.ws.name)}` : ''}</p></div>
-      <div class="hm-stats">
-        <button data-act="nav" data-view="mine" class="y"><b>${mProg.length}</b><span>w trakcie</span></button>
-        <button data-act="nav" data-view="mine"><b>${mToday.length}</b><span>na dziś</span></button>
-        <button data-act="nav" data-view="mine" class="${mOver.length ? 'r' : ''}"><b>${mOver.length}</b><span>po terminie</span></button>
-        <button data-act="nav" data-view="team" class="g"><b>${doneToday}</b><span>ukończone</span></button>
-      </div></div>
-    <p class="hm-sum">${parts.join(' · ')}.</p>
-    <label class="hm-qa">${I.plus}<input class="home-add" placeholder="Dodaj zadanie… np. „Oferta dla klienta jutro 15:00 +Ania p1”" autocomplete="off" spellcheck="false" aria-label="Dodaj zadanie"><kbd>Enter</kbd></label>
-    <div class="hm-qa-prev"></div>
-  </section>`;
-  if (!team.ws && auth.ready) html += `<section class="hm-card hm-warn"><div class="hm-card-h"><h2>${sz(I.team, 16)} Nie jesteś jeszcze w zespole</h2></div><p class="muted">Utwórz zespół albo dołącz kodem zaproszenia, by widzieć wspólne zadania.</p><button class="btn primary" data-act="ob-open">Utwórz lub dołącz</button></section>`;
-  if (team.ws && !DEMO && pushState() === 'off') html += `<section class="hm-card hm-push"><div class="hm-card-h"><h2>${sz(I.bell, 16)} Włącz powiadomienia</h2></div><p class="muted">Dowiesz się od razu, gdy ktoś przypisze Ci zadanie lub zbliża się termin – także przy zamkniętej aplikacji.</p><button class="btn primary" data-act="push-on">Włącz powiadomienia</button></section>`;
-  html += '<div class="hm-grid">';
-  html += card('today', 'hm-focus2', `${sz(todayIcon(), 16)} Moje na dziś <span class="hm-cnt">${focus.length}</span>`,
-    `${mOver.length ? `<button class="hm-od" data-act="mine-today">${sz(I.calBig, 15)} ${mOver.length} po terminie – przełóż na dziś</button>` : ''}
-    <div class="hm-list">${focus.slice(0, 8).map(mini).join('') || `<div class="hm-empty sm">${sz(I.done, 22)}<span>Wszystko na dziś zrobione – brawo!</span></div>`}</div>
-    ${focus.length > 8 ? go('mine', `Pokaż wszystkie (${focus.length})`) : ''}`, go('mine', 'Moje zadania'));
-  html += card('plan', 'hm-plan', `${sz(I.calMonth, 16)} Mój plan dnia <span class="hm-cnt">${plan.length}</span>`,
-    plan.length ? `<div class="pl-list sm">${plan.map(planRow).join('')}</div>` : `<div class="hm-empty sm">${sz(I.calMonth, 22)}<span>Brak spotkań dziś.</span></div>`, go('calendar', 'Kalendarz'));
-  const evN = {}; myEvents(7).forEach(t => { evN[t.title] = (evN[t.title] || 0) + 1; });
-  const soon = [...mine.filter(t => t.due && t.due > td && t.due <= addDays(td, 7)), ...myEvents(7).filter(t => t.due > td && evN[t.title] < 3)].sort(byDue).slice(0, 7);
-  html += card('next', 'hm-next2', `${sz(I.upcoming, 16)} Najbliższe 7 dni`, soon.map(t => { const n = diffDays(t.due, td); return `<button class="hm-dl" data-act="open" data-id="${t.id}"><span class="hm-dl-n">${n === 1 ? 'jutro' : PL_DAYS_SHORT[dow(t.due)] + ' ' + parseDate(t.due).getDate()}</span><span class="grow">${t.kind === 'event' ? `<span class="ev-ic">${sz(I.calBig, 13)}</span>` : ''}${esc(t.title)}</span><span class="muted small">${t.time || ''}</span></button>`; }).join('') || '<div class="muted small" style="padding:6px 2px">Nic zaplanowanego na najbliższy tydzień.</div>', go('upcoming', 'Nadchodzące'));
-  html += card('team', 'hm-team', `${sz(I.team, 16)} Zespół`, team.members.length ? `<div class="hm-tm">${team.members.map(m => { const ts = all.filter(t => t.assignees.includes(m.user_id)), p = ts.filter(t => stOf(t) === 1).length, od = ts.filter(t => t.due && t.due < td).length, tdy = ts.filter(t => t.due === td).length; return `<button class="hm-tm-r" data-act="person" data-uid="${m.user_id}">${avatar(m.user_id, 28)}<span class="grow"><b>${esc(memberName(m.user_id))}</b><span class="hm-tm-s">${ts.length} otwartych${tdy ? ` · ${tdy} na dziś` : ''}</span></span><span class="hm-tm-b">${p ? `<em class="y" title="w trakcie">${p}</em>` : ''}${od ? `<em class="r" title="po terminie">${od}</em>` : ''}</span></button>`; }).join('')}</div>` : '<div class="muted small">Zaproś osoby w Ustawieniach → Zespół.</div>', go('team', 'Tablica zespołu'));
-  html += card('unassigned', 'hm-un', `${sz(I.ban, 16)} Nieprzypisane <span class="hm-cnt">${unassigned.length}</span>`, unassigned.slice(0, 6).map(t => `<div class="hm-un-r"><span class="grow" data-act="open" data-id="${t.id}">${t.priority < 4 ? `<span class="pflag">${flagIcon(t.priority, 12)}</span>` : ''}${esc(t.title)}${t.due ? ` <span class="due-txt ${dueInfo(t.due, t.time).cls}">${dueInfo(t.due, t.time).label}</span>` : ''}</span><button class="btn sm" data-act="assign" data-id="${t.id}">${sz(I.person, 14)} Przypisz</button></div>`).join('') || '<div class="muted small">Wszystkie zadania mają przypisane osoby 👍</div>', unassigned.length > 6 ? go('team', 'Wszystkie') : '');
-  const recent = state.tasks.filter(t => t.completed && t.completedAt && t.kind !== 'event').sort((a, b) => b.completedAt - a.completedAt).slice(0, 6);
-  html += card('done', 'hm-done', `${sz(I.done, 16)} Ostatnio ukończone`, recent.map(t => `<button class="hm-dn" data-act="open" data-id="${t.id}">${t.completedBy ? avatar(t.completedBy, 22) : ''}<span class="grow"><span class="hm-dn-t">${esc(t.title)}</span><span class="muted small">${t.completedBy ? esc(firstName(t.completedBy)) + ' · ' : ''}${fmtDateTime(t.completedAt)}</span></span></button>`).join('') || '<div class="muted small">Jeszcze nic nie ukończono.</div>', go('completed', 'Ukończone'));
-  html += '</div></div>';
-  return html;
-}
 // ---------- Raporty ----------
 function renderReports() {
   const td = todayStr(), all = openAll(), done = state.tasks.filter(t => t.completed && t.completedAt && t.kind !== 'event');
@@ -4911,6 +4756,319 @@ function userMenu(anchor) {
     DEMO ? { icon: sz(I.x, 16), label: 'Zakończ demo', fn: exitDemo } : { icon: sz(I.left, 16), label: 'Wyloguj', fn: () => confirmDlg('Wylogować się?', 'Twoje zmiany są zapisane w zespole. Dane zostaną usunięte z tego urządzenia.', 'Wyloguj', signOut) },
   ]);
 }
+
+// ================================================================
+//  v3 – prosty układ: Zadania · Kalendarz · Zespół · Projekty · Raporty
+// ================================================================
+Object.assign(I, {
+  tasks: sv('<rect x="4" y="4" width="16" height="16" rx="3.5"/><path d="M8 12.5l2.7 2.7L16.5 9"/>', 20),
+  folder: sv('<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>', 20),
+  compass: sv('<circle cx="12" cy="12" r="8.5"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>', 20),
+});
+// ---------- wspólny filtr osób (Zadania i Kalendarz) ----------
+function whoChips() {
+  if (!team.members.length) return '';
+  const w = state.settings.who || 'me';
+  const opts = [['me', avatar(me(), 20), 'Moje'], ['all', sz(I.team, 15), 'Cały zespół'],
+    ...team.members.filter(m => m.user_id !== me()).map(m => [m.user_id, avatar(m.user_id, 20), firstName(m.user_id)]),
+    ['none', '<span class="av none" style="--s:20px">?</span>', 'Nieprzypisane']];
+  return `<div class="who-row" role="group" aria-label="Czyje zadania pokazać">${opts.map(([v, ic, l]) => `<button class="cp-chip ${w === v ? 'on' : ''}" data-act="set-who" data-w="${v}" style="--c:${v === 'me' ? memberColor(me()) : v === 'all' || v === 'none' ? 'var(--accent)' : memberColor(v)}">${ic}<span>${esc(l)}</span></button>`).join('')}</div>`;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act="set-who"], [data-act="cal-who"]');
+  if (!b || b.closest('#popover')) return;
+  e.stopImmediatePropagation();
+  state.settings.who = b.dataset.w === me() ? 'me' : b.dataset.w; ui.stagger = true; commit();
+}, true);
+const whoTitle = () => { const w = state.settings.who || 'me'; return w === 'me' ? 'Moje zadania' : w === 'all' ? 'Zadania zespołu' : w === 'none' ? 'Nieprzypisane zadania' : 'Zadania: ' + esc(memberName(w)); };
+
+// ---------- ZADANIA ----------
+const TASK_TABS = [['today', 'Dziś'], ['upcoming', 'Nadchodzące'], ['all', 'Wszystkie'], ['done', 'Ukończone']];
+function dayHead(d) { const n = diffDays(d, todayStr()); return `${n === 0 ? 'Dziś' : n === 1 ? 'Jutro' : cap(PL_DAYS[dow(d)])} <span class="dh-date">${parseDate(d).getDate()} ${PL_MON_SHORT[parseDate(d).getMonth()]}</span>`; }
+function renderTasks() {
+  const tab = TASK_TABS.some(t => t[0] === ui.taskTab) ? ui.taskTab : 'today';
+  ui.taskTab = tab;
+  const td = todayStr(), act = active(), tasks = act.filter(t => t.kind !== 'event');
+  const over = tasks.filter(t => t.due && t.due < td).sort(byDue);
+  const today = tasks.filter(t => t.due === td || (t.endDue && t.due < td && td <= t.endDue)).sort((a, b) => stOf(b) - stOf(a) || byDue(a, b));
+  const cnt = { today: over.length + today.length, upcoming: tasks.filter(t => t.due && t.due > td && t.due <= addDays(td, 14)).length, all: tasks.length, done: '' };
+  let html = header(whoTitle(), { icon: sz(I.tasks, 24), iconCls: 'tile', barTitle: 'Zadania',
+    sub: `${dateLong(td)}${over.length ? ` · <b class="hm-red">${over.length} po terminie</b>` : ''}`,
+    after: `<div class="tabs-big" role="tablist">${TASK_TABS.map(([k, l]) => `<button role="tab" class="${tab === k ? 'on' : ''}" data-act="task-tab" data-t="${k}">${l}${cnt[k] ? `<span>${cnt[k]}</span>` : ''}</button>`).join('')}</div>${whoChips()}` });
+  if (tab === 'today') {
+    const evs = act.filter(t => t.kind === 'event' && (t.due === td || (t.endDue && t.due <= td && td <= t.endDue))).sort(byDue);
+    const plan = dayPlan(td, evs);
+    if (over.length) html += `<div class="group"><div class="group-head"><h3 class="red-h">Po terminie</h3><span class="count">${over.length}</span><button class="btn ghost accent" data-act="reschedule-overdue">Przełóż na dziś</button></div>${over.map(t => taskRow(t, { showProject: true })).join('')}</div>`;
+    html += `<div class="group" data-drop="day" data-date="${td}"><div class="group-head"><h3>Do zrobienia dziś</h3><span class="count">${today.length || ''}</span></div>
+      ${today.map(t => taskRow(t, { showProject: true, hideToday: true })).join('')}${addTaskButton('today', { due: td })}</div>`;
+    html += `<div class="group"><div class="group-head"><h3>Plan dnia</h3><span class="count">${plan.length || ''}</span><button class="btn ghost" data-act="cal-goday" data-date="${td}">${sz(I.calMonth, 15)} Otwórz w kalendarzu</button></div>
+      ${plan.length ? `<div class="pl-list">${plan.map(planRow).join('')}</div>` : '<div class="muted small pad">Brak spotkań dziś.</div>'}</div>`;
+    if (!over.length && !today.length && !plan.length) html += emptyState('Na dziś wszystko zrobione', 'Zajrzyj do zakładki „Nadchodzące” albo dodaj nowe zadanie.');
+  } else if (tab === 'upcoming') {
+    let body = '';
+    for (let i = 1; i <= 14; i++) {
+      const d = addDays(td, i);
+      const ts = act.filter(t => t.due === d).sort(byDue);
+      const plan = dayPlan(d, ts.filter(t => t.kind === 'event')), tk = ts.filter(t => t.kind !== 'event');
+      if (!plan.length && !tk.length) continue;
+      body += `<div class="group day-group ${dow(d) === 1 ? 'week-start' : ''}" data-drop="day" data-date="${d}"><div class="group-head"><h3>${dayHead(d)}</h3><span class="count">${plan.length + tk.length}</span></div>
+        ${tk.map(t => taskRow(t, { showProject: true, hideToday: true })).join('')}${plan.length ? `<div class="pl-list sm">${plan.map(planRow).join('')}</div>` : ''}</div>`;
+    }
+    const later = tasks.filter(t => t.due && t.due > addDays(td, 14)).sort(byDue);
+    if (later.length) body += `<div class="group"><div class="group-head"><h3>Później</h3><span class="count">${later.length}</span></div>${later.map(t => taskRow(t, { showProject: true })).join('')}</div>`;
+    html += body || emptyState('Nic zaplanowanego', 'W najbliższych dwóch tygodniach nie ma zadań ani spotkań.');
+  } else if (tab === 'all') {
+    const prog = tasks.filter(t => stOf(t) === 1).sort(byDue);
+    const rest = tasks.filter(t => stOf(t) !== 1);
+    html += groupBlock('a-prog', 'W trakcie', prog) + groupBlock('a-over', '<span class="red-h">Po terminie</span>', rest.filter(t => t.due && t.due < td).sort(byDue))
+      + groupBlock('a-due', 'Z terminem', rest.filter(t => t.due && t.due >= td).sort(byDue)) + groupBlock('a-nod', 'Bez terminu', rest.filter(t => !t.due).sort((a, b) => a.priority - b.priority), { add: addTaskButton('all', {}) });
+    if (!tasks.length) html += emptyState('Brak otwartych zadań', 'Dodaj pierwsze zadanie przyciskiem „Nowe zadanie”.');
+  } else {
+    const done = state.tasks.filter(t => t.completed && t.completedAt && t.kind !== 'event' && whoOk(t)).sort((a, b) => b.completedAt - a.completedAt).slice(0, 150);
+    let last = '';
+    done.forEach(t => { const d = fmtDate(new Date(t.completedAt)); if (d !== last) { last = d; html += `<div class="done-day">${dayHead(d)}</div>`; } html += taskRow(t, { asActive: true, noDrag: true, showProject: true }); });
+    if (!done.length) html += emptyState('Jeszcze nic nie ukończono', 'Przesuń suwak zadania w prawo, gdy je skończysz.');
+  }
+  return html;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act="task-tab"]');
+  if (!b) return;
+  ui.taskTab = b.dataset.t; ui.stagger = true; render(); const c = $('.content'); if (c) c.scrollTop = 0;
+});
+
+// ---------- PROJEKTY ----------
+function renderProjects() {
+  const td = todayStr(), all = state.tasks.filter(t => !t.completed && t.kind !== 'event');
+  let html = header('Projekty', { icon: sz(I.folder, 24), iconCls: 'tile', sub: `${userProjects().length} ${plural(userProjects().length, 'projekt', 'projekty', 'projektów')}`,
+    right: `<button class="btn primary" data-act="add-project">${sz(I.plus, 15)} Nowy projekt</button>` });
+  html += `<div class="pj-grid">${[...userProjects(), proj('inbox')].filter(Boolean).map(p => {
+    const open = all.filter(t => t.projectId === p.id), dn = state.tasks.filter(t => t.projectId === p.id && t.completed && t.kind !== 'event').length;
+    const od = open.filter(t => t.due && t.due < td).length, prog = open.filter(t => stOf(t) === 1).length;
+    const pc = open.length + dn ? Math.round(dn / (open.length + dn) * 100) : 0, col = p.color && p.color !== '#808080' ? p.color : '#8f9aa6';
+    const people = [...new Set(open.flatMap(t => t.assignees))];
+    const next = open.filter(t => t.due && t.due >= td).sort(byDue)[0];
+    const evN = state.tasks.filter(t => t.projectId === p.id && t.kind === 'event' && t.due && t.due >= td && t.due <= addDays(td, 7)).length;
+    return `<button class="pj-card" data-act="nav" data-view="${p.isInbox ? 'inbox' : 'project'}" ${p.isInbox ? '' : `data-id="${p.id}"`} style="--c:${col}" data-drop="project" data-pid="${p.id}">
+      <span class="pj-top"><span class="pj-dot"></span><b>${p.isInbox ? 'Skrzynka (bez projektu)' : esc(p.name)}</b>${p.favorite ? '<span class="pj-fav">★</span>' : ''}</span>
+      ${p.description ? `<span class="pj-desc">${esc(p.description)}</span>` : ''}
+      <span class="pj-bar"><i style="--w:${pc}%"></i></span>
+      <span class="pj-stats"><span><b>${open.length}</b> otwartych</span>${evN ? `<span><b>${evN}</b> spotk. w 7 dni</span>` : ''}${prog ? `<span class="y"><b>${prog}</b> w trakcie</span>` : ''}${od ? `<span class="r"><b>${od}</b> po terminie</span>` : ''}<span class="pj-pc">${pc}%</span></span>
+      <span class="pj-foot">${people.length ? avatars(people, 22, 5) : '<span class="muted small">brak przypisanych osób</span>'}${next ? `<span class="pj-next">Następne: ${esc(next.title.length > 28 ? next.title.slice(0, 27) + '…' : next.title)} · ${dueInfo(next.due, next.time).label}</span>` : ''}</span>
+    </button>`;
+  }).join('')}</div>`;
+  return html;
+}
+
+// ---------- PASEK BOCZNY ----------
+const MAIN_NAV = [['tasks', 'Zadania', () => I.tasks], ['calendar', 'Kalendarz', () => I.calMonth], ['team', 'Zespół', () => I.team], ['projects', 'Projekty', () => I.folder], ['reports', 'Raporty', () => I.pulse]];
+function renderSidebar() {
+  $('#app').classList.toggle('sb-closed', !ui.sidebar);
+  const td = todayStr(), v = ui.view, sbEl = $('#sidebar');
+  const mineToday = state.tasks.filter(t => !t.completed && t.kind !== 'event' && t.assignees.includes(me()) && t.due && t.due <= td).length;
+  const cur = ['project', 'inbox'].includes(v.type) ? 'projects' : v.type === 'person' ? 'team' : v.type;
+  const name = state.settings.userName || 'Ja';
+  const navBtn = ([k, l, ic]) => `<button class="nav-item nv2 ${cur === k ? 'active' : ''}" data-act="nav" data-view="${k}" data-tour="nav-${k}">${ic()}<span class="name">${l}</span>${k === 'tasks' && mineToday ? `<span class="count">${mineToday}</span>` : ''}</button>`;
+  const projItem = p => { const on = (v.type === 'project' && v.id === p.id) || (p.isInbox && v.type === 'inbox'); const od = state.tasks.filter(t => !t.completed && t.kind !== 'event' && t.projectId === p.id && t.due && t.due < td).length;
+    return `<button class="nav-item pj-item ${on ? 'active' : ''}" data-act="nav" data-view="${p.isInbox ? 'inbox' : 'project'}" ${p.isInbox ? '' : `data-id="${p.id}"`} data-drop="project" data-pid="${p.id}"><span class="pj-dot" style="--c:${p.color && p.color !== '#808080' ? p.color : '#8f9aa6'}"></span><span class="name">${esc(projName(p))}</span>${od ? `<span class="count alert">${od}</span>` : ''}</button>`; };
+  sbEl.innerHTML = `
+    <div class="sb-top">
+      <button class="user" data-act="user-menu" title="Konto, motyw, wylogowanie">${avatar(me(), 30)}<span>${esc(name)}${team.ws ? `<small class="ws-name">${esc(team.ws.name)}</small>` : ''}</span>${I.chevronDown}</button>
+      <div class="sb-tools">
+        <span class="sync-badge" data-s="${sync.status}" title="${SYNC_LABEL[sync.status]}" ${sync.status === 'local' ? 'hidden' : ''}>${I.cloud}</span>
+        <button class="icon-btn" data-act="notifications" title="Powiadomienia" data-tour="bell">${I.bell}</button>
+        <button class="icon-btn" data-act="toggle-sidebar" title="Zwiń menu (M)">${I.sidebar}</button>
+      </div>
+    </div>
+    <button class="sb-add" data-act="quick-add" data-tour="add" title="Nowe zadanie lub wydarzenie (Q)">${sz(I.plus, 18)}<span>Nowe zadanie</span><kbd>Q</kbd></button>
+    <button class="sb-search" data-act="nav" data-view="search">${sz(I.search, 16)}<span>Szukaj…</span><kbd>/</kbd></button>
+    <nav class="sb-nav" data-tour="nav">${MAIN_NAV.map(navBtn).join('')}</nav>
+    <div class="sb-group">
+      <div class="sb-head"><button class="sb-title" data-act="nav" data-view="projects">Projekty</button><button class="icon-btn" data-act="add-project" title="Nowy projekt">${I.plus}</button></div>
+      ${[...userProjects().filter(p => p.favorite), ...userProjects().filter(p => !p.favorite), proj('inbox')].filter(Boolean).map(projItem).join('')}
+    </div>
+    <div class="sb-foot">
+      <button class="nav-item ${v.type === 'prefs' && ui.prefTab === 'tour' ? 'active' : ''}" data-act="tour-open" data-tour="help">${sz(I.compass, 18)}<span class="name">Przewodnik po aplikacji</span></button>
+      <button class="nav-item ${v.type === 'prefs' && ui.prefTab !== 'tour' ? 'active' : ''}" data-act="nav" data-view="prefs">${sz(I.gear, 18)}<span class="name">Ustawienia</span></button>
+    </div>`;
+}
+// ---------- DOLNY PASEK (telefon) ----------
+function renderTabbar() {
+  let tb = $('#tabbar');
+  if (!tb) { tb = document.createElement('nav'); tb.id = 'tabbar'; tb.setAttribute('aria-label', 'Nawigacja'); document.body.appendChild(tb); }
+  const td = todayStr(), v = ui.view.type, n = state.tasks.filter(t => !t.completed && t.kind !== 'event' && t.assignees.includes(me()) && t.due && t.due <= td).length;
+  const cur = ['project', 'inbox', 'projects'].includes(v) ? 'projects' : v === 'person' ? 'team' : v;
+  const b = (k, ic, l) => `<button class="${cur === k && !ui.sidebar ? 'on' : ''}" data-act="nav" data-view="${k}" aria-label="${l}"><span class="tb-ic">${ic}${k === 'tasks' && n ? `<b>${n > 99 ? '99+' : n}</b>` : ''}</span><span class="tb-l">${l}</span></button>`;
+  tb.innerHTML = b('tasks', I.tasks, 'Zadania') + b('calendar', I.calMonth, 'Kalendarz')
+    + `<button class="tb-add" data-act="quick-add" aria-label="Nowe zadanie">${sz(I.plus, 26)}</button>`
+    + b('team', I.team, 'Zespół') + `<button class="${ui.sidebar && isNarrow() ? 'on' : ''}" data-act="tb-more" aria-label="Więcej"><span class="tb-ic">${I.menu}</span><span class="tb-l">Więcej</span></button>`;
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-act="tour-open"]')) { ui.prefTab = 'tour'; ui.modal = null; setView({ type: 'prefs' }); } });
+
+// ================================================================
+//  PRZEWODNIK – interaktywna wycieczka po aplikacji (podświetla elementy krok po kroku)
+// ================================================================
+const firstEl = sel => $$(sel).find(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+const TOUR = [
+  { ch: 'Podstawy', title: 'Witaj w Listo Team 👋', text: 'To krótki przewodnik (ok. 2 minuty). Pokażę Ci, gdzie co jest i jak z tego korzystać. Możesz go przerwać w każdej chwili i wrócić do niego z menu: <b>Przewodnik po aplikacji</b>.', view: { type: 'tasks' }, tab: 'today' },
+  { ch: 'Podstawy', sel: '[data-tour="nav"]', msel: '#tabbar', title: 'Pięć głównych miejsc', text: '<b>Zadania</b> – Twoja lista na dziś i dalej.<br><b>Kalendarz</b> – plan godzinowy całego zespołu.<br><b>Zespół</b> – kto co robi.<br><b>Projekty</b> – zadania pogrupowane tematycznie.<br><b>Raporty</b> – statystyki.', view: { type: 'tasks' }, tab: 'today' },
+  { ch: 'Podstawy', sel: '[data-tour="add"]', msel: '#tabbar .tb-add', title: 'Dodawanie zadań i wydarzeń', text: 'Kliknij <b>Nowe zadanie</b> (albo klawisz <kbd>Q</kbd>). Możesz pisać naturalnie, np.:<br><code>Oferta dla klienta jutro 14:00 +Ania p1</code><br>– termin, godzina, osoba i priorytet ustawią się same. Przełącznik u góry okna zmienia zadanie w <b>wydarzenie</b> z przedziałem czasu.', view: { type: 'tasks' }, tab: 'today' },
+  { ch: 'Zadania', sel: '.tabs-big', title: 'Zakładki zadań', text: '<b>Dziś</b> – to, co masz zrobić dziś (i zaległe).<br><b>Nadchodzące</b> – kolejne 2 tygodnie dzień po dniu.<br><b>Wszystkie</b> – cała lista.<br><b>Ukończone</b> – historia.', view: { type: 'tasks' }, tab: 'today' },
+  { ch: 'Zadania', sel: '.who-row', title: 'Czyje zadania widzisz', text: 'Jednym kliknięciem przełączasz: <b>Moje</b>, <b>Cały zespół</b> albo konkretna osoba. Ten sam wybór działa w Kalendarzu.', view: { type: 'tasks' }, tab: 'today' },
+  { ch: 'Zadania', sel: '.content .st3', title: 'Suwak statusu', text: 'Każde zadanie ma suwak:<br>⚪ <b>w lewo</b> – nie zaczęte,<br>🟡 <b>środek</b> – w trakcie,<br>🟢 <b>w prawo</b> – ukończone.<br>Kliknij wybrane miejsce albo przeciągnij. Osoba, która zleciła zadanie, dostanie powiadomienie.', view: { type: 'tasks' }, tab: 'today' },
+  { ch: 'Zadania', sel: '.content .row-avs', title: 'Kto robi zadanie', text: 'Kółka z inicjałami to przypisane osoby. Kliknij je, żeby przypisać kogoś innego – ta osoba dostanie powiadomienie push na telefon.', view: { type: 'tasks' }, tab: 'today' },
+  { ch: 'Zadania', sel: '.content .task-main', title: 'Szczegóły zadania', text: 'Kliknij nazwę zadania, aby otworzyć szczegóły: opis, podzadania, komentarze, przypomnienie, miejsce spotkania i historię zmian.', view: { type: 'tasks' }, tab: 'today' },
+  { ch: 'Zadania', sel: '.pl-list, .content .group:last-of-type', title: 'Plan dnia', text: 'Pod zadaniami widzisz spotkania na dziś – z Listo Team i z podłączonych Kalendarzy Google – ułożone godzinowo.', view: { type: 'tasks' }, tab: 'today' },
+  { ch: 'Kalendarz', sel: '.cal-modes', title: 'Widoki kalendarza', text: '<b>Miesiąc</b>, <b>Tydzień</b>, <b>Dzień</b>, <b>Zespół</b> (kolumna dla każdej osoby) i <b>Lista</b>. Przycisk <b>Pn–Pt</b> ukrywa weekend.', view: { type: 'calendar' }, cal: 'week' },
+  { ch: 'Kalendarz', sel: '.tg-scroll', title: 'Dodawanie przeciągnięciem', text: 'Przeciągnij myszką po pustych godzinach – powstanie wydarzenie z tym przedziałem czasu. Gotowy blok możesz <b>przenieść</b> (także na inny dzień) albo <b>wydłużyć</b>, ciągnąc dolną krawędź. Na telefonie: dotknij pustej godziny, przytrzymaj blok, by go przesunąć.', view: { type: 'calendar' }, cal: 'week' },
+  { ch: 'Kalendarz', sel: '.cal-src', title: 'Kalendarze Google', text: 'Tu włączasz i wyłączasz to, co widać: zadania, wydarzenia oraz podłączone Kalendarze Google – <b>zespołowe</b> (widzi każdy) i <b>osobiste</b> (tylko Ty).', view: { type: 'calendar' }, cal: 'week' },
+  { ch: 'Kalendarz', sel: '.tg-head', title: 'Widok „Zespół”', text: 'W trybie <b>Zespół</b> każda osoba ma swoją kolumnę. Przeciągnięcie spotkania do innej kolumny przypisuje je tej osobie.', view: { type: 'calendar' }, cal: 'team' },
+  { ch: 'Zespół', sel: '.team-board .team-col', title: 'Tablica zespołu', text: 'Każda kolumna to osoba i jej otwarte zadania. Przeciągnij zadanie na inną osobę, aby je przekazać. Kolumna <b>Nieprzypisane</b> zbiera zadania bez właściciela.', view: { type: 'team' } },
+  { ch: 'Zespół', sel: '[data-act="team-mode"][data-v="load"]', title: 'Obciążenie', text: 'Mapa na 14 dni pokazuje, kto ma ile pracy każdego dnia – łatwo zobaczyć, kogo nie przeciążać.', view: { type: 'team' } },
+  { ch: 'Projekty', sel: '.pj-grid', title: 'Projekty', text: 'Projekty grupują zadania (np. klient, dział). Na karcie widzisz postęp, zaległości i osoby. Projekt może być listą albo tablicą z kolumnami.', view: { type: 'projects' } },
+  { ch: 'Powiadomienia', sel: '[data-tour="bell"]', msel: '#tabbar [data-act="tb-more"]', title: 'Powiadomienia', text: 'Dzwonek pokazuje, kto Ci coś przypisał, skomentował albo zmienił status. Włącz <b>powiadomienia push</b> w Ustawieniach, by dostawać je także przy zamkniętej aplikacji.', view: { type: 'tasks' }, tab: 'today' },
+  { ch: 'Ustawienia', sel: '.pf2-tabs', title: 'Ustawienia', text: 'Najważniejsze zakładki: <b>Zespół</b> (link zaproszenia dla współpracowników), <b>Kalendarze</b> (podłączenie Google), <b>Powiadomienia</b> oraz <b>Przewodnik</b>, w którym możesz uruchomić tę wycieczkę ponownie.', view: { type: 'prefs' }, pref: 'team' },
+  { ch: 'Koniec', title: 'Gotowe! 🎉', text: 'To wszystko, co potrzebne na start. Przewodnik zawsze znajdziesz w menu po lewej: <b>Przewodnik po aplikacji</b> (lub w Ustawieniach → Przewodnik). Możesz tam też wybrać pojedynczy rozdział.', view: { type: 'tasks' }, tab: 'today' },
+];
+const TOUR_CH = [...new Set(TOUR.map(s => s.ch))];
+const tour = { i: -1, el: null };
+function startTour(i = 0) {
+  closePopover(true); ui.modal = null;
+  if (isNarrow()) { ui.sidebar = false; }
+  tour.i = Math.max(0, Math.min(TOUR.length - 1, i));
+  if (!tour.el) {
+    tour.el = document.createElement('div'); tour.el.id = 'tour';
+    tour.el.innerHTML = '<div class="tr-spot"></div><div class="tr-card" role="dialog" aria-live="polite"></div>';
+    document.body.appendChild(tour.el);
+    tour.el.addEventListener('click', e => {
+      const a = e.target.closest('[data-tr]')?.dataset.tr;
+      if (a === 'next') tourGo(1); else if (a === 'prev') tourGo(-1); else if (a === 'end') endTour();
+      else if (a?.startsWith('ch:')) startTour(TOUR.findIndex(s => s.ch === a.slice(3)));
+    });
+  }
+  tourStep();
+}
+function tourGo(d) { const n = tour.i + d; if (n >= TOUR.length) return endTour(true); if (n < 0) return; tour.i = n; tourStep(); }
+function endTour(done) {
+  if (tour.el) { tour.el.classList.add('out'); const el = tour.el; tour.el = null; setTimeout(() => el.remove(), 220); }
+  tour.i = -1;
+  if (done) { lsSet('lt-tour-done', true); toast('Przewodnik ukończony – wrócisz do niego z menu „Przewodnik po aplikacji”'); }
+}
+function tourStep() {
+  const s = TOUR[tour.i];
+  if (s.tab) ui.taskTab = s.tab;
+  if (s.cal) ui.calMode = s.cal;
+  if (s.pref) ui.prefTab = s.pref;
+  const need = s.view && (ui.view.type !== s.view.type || s.tab || s.cal || s.pref);
+  if (need) { ui.view = Object.assign({}, s.view); try { history.replaceState(null, '', '#' + viewHash(ui.view)); } catch (e) { /* */ } ui.stagger = false; render(); }
+  tour.el.classList.add('busy');
+  setTimeout(() => { const el = s.sel ? firstEl(isNarrow() && s.msel ? s.msel : s.sel) || firstEl(s.sel) : null; if (el) el.scrollIntoView({ block: 'center', behavior: 'instant' }); setTimeout(() => tourPlace(el), 60); }, need ? 260 : 40);
+}
+function tourPlace(el) {
+  if (!tour.el) return;
+  const s = TOUR[tour.i], spot = $('.tr-spot', tour.el), card = $('.tr-card', tour.el);
+  tour.el.classList.remove('busy');
+  const chI = TOUR_CH.indexOf(s.ch);
+  card.innerHTML = `<div class="tr-head"><span class="tr-ch">${esc(s.ch)}</span><span class="tr-n">${tour.i + 1} / ${TOUR.length}</span><button class="icon-btn" data-tr="end" title="Zakończ przewodnik">${I.x}</button></div>
+    <div class="tr-prog"><i style="--w:${((tour.i + 1) / TOUR.length * 100).toFixed(1)}%"></i></div>
+    <h3>${s.title}</h3><p>${s.text}</p>
+    <div class="tr-chs">${TOUR_CH.map((c, i) => `<button data-tr="ch:${esc(c)}" class="${i === chI ? 'on' : i < chI ? 'past' : ''}" title="${esc(c)}"></button>`).join('')}</div>
+    <div class="tr-btns">${tour.i ? '<button class="btn" data-tr="prev">Wstecz</button>' : '<button class="btn ghost" data-tr="end">Pomiń</button>'}<button class="btn primary" data-tr="next">${tour.i === TOUR.length - 1 ? 'Zakończ' : 'Dalej'} ${tour.i === TOUR.length - 1 ? '' : sz(I.right, 14)}</button></div>`;
+  tour.el.classList.toggle('center', !el);
+  if (!el) { spot.style.cssText = 'opacity:0'; card.style.cssText = ''; return; }
+  const r = el.getBoundingClientRect(), pad = 6;
+  const R = { l: Math.max(4, r.left - pad), t: Math.max(4, r.top - pad), w: Math.min(innerWidth - 8, r.width + pad * 2), h: Math.min(innerHeight - 8, r.height + pad * 2) };
+  spot.style.cssText = `left:${R.l}px;top:${R.t}px;width:${R.w}px;height:${R.h}px;opacity:1`;
+  if (innerWidth <= 640) { card.style.cssText = R.t + R.h / 2 > innerHeight / 2 ? 'left:10px;right:10px;top:10px' : 'left:10px;right:10px;bottom:10px'; return; }
+  const cw = card.offsetWidth || 360, ch = card.offsetHeight || 220;
+  let x, y;
+  if (R.l + R.w + 16 + cw < innerWidth) { x = R.l + R.w + 16; y = R.t; }
+  else if (R.t + R.h + 16 + ch < innerHeight) { x = R.l; y = R.t + R.h + 16; }
+  else if (R.t - 16 - ch > 0) { x = R.l; y = R.t - 16 - ch; }
+  else { x = R.l - 16 - cw; y = R.t; }
+  x = Math.max(10, Math.min(innerWidth - cw - 10, x)); y = Math.max(10, Math.min(innerHeight - ch - 10, y));
+  card.style.cssText = `left:${x}px;top:${y}px`;
+}
+addEventListener('resize', () => { if (tour.el && tour.i >= 0) tourStep(); });
+document.addEventListener('keydown', e => {
+  if (!tour.el) return;
+  if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); tourGo(1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopImmediatePropagation(); tourGo(-1); }
+  else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); endTour(); }
+}, true);
+// zaproszenie do przewodnika przy pierwszym uruchomieniu
+function maybeOfferTour() {
+  if (state.settings.tourOffer === false || tour.el || $('#tour-offer') || $('#auth')) return;
+  if (DEMO ? sessionStorage.getItem('lt-tour-offered') : lsGet('lt-tour-done', false) || lsGet('lt-tour-offered', false)) return;
+  try { sessionStorage.setItem('lt-tour-offered', '1'); } catch (e) { /* */ } if (!DEMO) lsSet('lt-tour-offered', true);
+  const el = document.createElement('div'); el.id = 'tour-offer';
+  el.innerHTML = `<div class="to-box"><span class="to-ic">${sz(I.compass, 28)}</span><div class="grow"><b>Pierwszy raz tutaj?</b><span>Pokażę Ci w 2 minuty, jak działa aplikacja – krok po kroku.</span></div>
+    <button class="btn" data-to="no">Nie teraz</button><button class="btn primary" data-to="go">Pokaż przewodnik</button></div>`;
+  document.body.appendChild(el);
+  el.onclick = e => { const a = e.target.closest('[data-to]')?.dataset.to; if (!a) return; el.classList.add('out'); setTimeout(() => el.remove(), 250); if (a === 'go') startTour(0); };
+}
+// zakładka „Przewodnik” w Ustawieniach
+function tourPrefsHtml() {
+  const s = state.settings;
+  const sec = (i, title, body) => `<section class="pf-card" style="--i:${i}"><h3>${title}</h3>${body}</section>`;
+  return sec(0, `${sz(I.compass, 18)} Przewodnik po aplikacji`, `<p class="pf-p">Interaktywna wycieczka krok po kroku: podświetla elementy ekranu i wyjaśnia, do czego służą. Trwa ok. 2 minuty.</p>
+      <button class="btn primary tour-big" data-act="tour-start" data-i="0">${sz(I.play, 16)} Uruchom przewodnik od początku</button>
+      ${lsGet('lt-tour-done', false) ? '<p class="muted small" style="margin-top:8px">✓ Przewodnik został już ukończony na tym urządzeniu.</p>' : ''}`)
+    + sec(1, 'Rozdziały', `<div class="tour-chs">${TOUR_CH.filter(c => c !== 'Koniec').map(c => { const i = TOUR.findIndex(x => x.ch === c), n = TOUR.filter(x => x.ch === c).length; return `<button class="tour-ch" data-act="tour-start" data-i="${i}"><b>${esc(c)}</b><span>${n} ${plural(n, 'krok', 'kroki', 'kroków')}</span>${sz(I.right, 16)}</button>`; }).join('')}</div>`)
+    + sec(2, 'Ustawienia przewodnika', prefRow('Proponuj przewodnik', 'Przy pierwszym uruchomieniu na nowym urządzeniu', swBtn(s.tourOffer !== false, 'tourOffer'))
+      + (DEMO ? '' : prefRow('Wersja demo', 'Przykładowa firma z danymi – bezpieczne miejsce do wypróbowania wszystkiego', `<button class="btn sm" data-act="demo-start">Otwórz demo</button>`)))
+    + sec(3, 'Szybkie dodawanie – ściąga', `<table class="kbd-table gd-tbl">${[['jutro, pt, 24.12, za 3 dni', 'termin'], ['14:00, o 9', 'godzina'], ['10:00-11:30, od 9 do 11, przez 2h', 'przedział czasu'], ['+Ania, +ja', 'przypisana osoba'], ['p1 … p4', 'priorytet (p1 = najważniejszy)'], ['#Projekt', 'projekt'], ['@etykieta', 'etykieta'], ['codziennie, co pon, co miesiąc', 'powtarzanie']].map(([a, b]) => `<tr><td><code>${esc(a)}</code></td><td>${b}</td></tr>`).join('')}</table>`)
+    + sec(4, 'Skróty klawiszowe', `<table class="kbd-table gd-tbl">${[['Q', 'nowe zadanie'], ['/', 'szukaj'], ['Ctrl K', 'paleta poleceń – skacz do dowolnego miejsca'], ['M', 'pokaż / ukryj menu'], ['Esc', 'zamknij okno'], ['D / T / J', 'na zadaniu pod kursorem: ukończ / dziś / jutro']].map(([a, b]) => `<tr><td>${a.split(' ').map(k => `<kbd>${k}</kbd>`).join(' ')}</td><td>${b}</td></tr>`).join('')}</table>`);
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-act="tour-start"]'); if (b) startTour(+b.dataset.i || 0); });
+
+// ---------- demo: więcej szczegółów (podzadania, opisy, komentarze) ----------
+function enrichDemo() {
+  const td = todayStr(), find = s => state.tasks.find(t => t.title.startsWith(s));
+  const sub = (par, items) => { if (!par) return; items.forEach(([title, who, done], i) => { const t = newTask({ title, parentId: par.id, projectId: par.projectId, sectionId: par.sectionId, assignees: who ? [who] : [], order: 1000 + i, createdBy: par.createdBy }); if (done) { t.completed = true; t.status = 2; t.completedAt = Date.now() - (i + 1) * 36e5; t.completedBy = who; } normTask(t); state.tasks.push(t); }); };
+  const desc = (s, d) => { const t = find(s); if (t) t.description = d; };
+  const com = (s, by, text, h) => { const t = find(s); if (t) t.comments.push({ id: uid(), by, text, at: Date.now() - h * 36e5 }); };
+  sub(find('Moduł rezerwacji'), [['Formularz rezerwacji', 'u-tomek', true], ['Kalendarz dostępności stolików', 'u-tomek'], ['Powiadomienia SMS', 'u-tomek'], ['Panel dla obsługi restauracji', 'u-ola']]);
+  sub(find('Projekt graficzny strony głównej'), [['Nagłówek ze zdjęciem', 'u-marta', true], ['Sekcja menu', 'u-marta', true], ['Stopka i kontakt', 'u-marta'], ['Wersja na telefon', 'u-marta']]);
+  sub(find('Kampania Google Ads'), [['Słowa kluczowe', 'u-kuba', true], ['Teksty reklam', 'u-kuba'], ['Ustawienie budżetu', 'u-piotr']]);
+  sub(find('Ustalić budżet na I kwartał'), [['Zebrać koszty stałe', 'u-ewa', true], ['Plan wynagrodzeń', 'u-anna'], ['Budżet marketingowy', 'u-kuba']]);
+  desc('Podpisać umowę z Hotel Mazury', 'Umowa na stronę + 12 miesięcy opieki. Wersja finalna w mailu od Piotra. Po podpisaniu wysłać skan do Ewy (księgowość).');
+  desc('Wysłać faktury za listopad', 'Lista klientów w arkuszu „Rozliczenia 2026”. Pamiętaj o fakturze dla Bistro Zielone (zaliczka 30%).');
+  desc('Zgłoszenie od klienta: nie działa formularz', 'Klient: Kancelaria Lex. Formularz kontaktowy nie wysyła wiadomości od wczoraj. Sprawdzić skrzynkę SMTP.');
+  desc('Przygotować zadanie rekrutacyjne', 'Prosta strona z listą produktów i koszykiem. Czas na wykonanie: 3 dni.');
+  com('Zgłoszenie od klienta', 'u-ola', 'Klient dzwonił drugi raz – kto może na to zerknąć?', 3);
+  com('Wysłać faktury za listopad', 'u-anna', 'Ewa, czy dasz radę dziś? Hotel Mazury czeka na fakturę.', 5);
+  com('Wysłać faktury za listopad', 'u-ewa', 'Tak, kończę po południu 👍', 4);
+  com('Kampania Google Ads', 'u-piotr', 'Budżet zatwierdzony, możesz startować w poniedziałek.', 26);
+  com('Podpisać umowę z Hotel Mazury', 'u-piotr', 'Klient zaakceptował wszystkie poprawki ✅', 6);
+}
+// ---------- demo: „żywy” zespół – co jakiś czas ktoś zmienia status, kończy zadanie lub komentuje ----------
+const demoLive = { on: true, timer: 0 };
+function demoTick() {
+  clearTimeout(demoLive.timer);
+  demoLive.timer = setTimeout(demoTick, 30000 + Math.random() * 25000);
+  if (!DEMO || !demoLive.on || document.hidden || ui.modal || ui.addForm || tour.el) return;
+  const others = team.members.map(m => m.user_id).filter(u => u !== me());
+  const cand = state.tasks.filter(t => !t.completed && t.kind !== 'event' && !t.parentId && t.assignees.some(a => others.includes(a)) && t.due && t.due <= addDays(todayStr(), 3));
+  if (!cand.length) return;
+  const t = cand[Math.floor(Math.random() * cand.length)], who = t.assignees.find(a => others.includes(a));
+  const r = Math.random();
+  let kind, body;
+  if (r < .25) { const txt = ['Zrobione w 80%, jutro rano skończę.', 'Potrzebuję jeszcze akceptacji klienta.', 'Wysłałem wersję do sprawdzenia.', 'Mam pytanie – zadzwonię po spotkaniu.'][Math.floor(Math.random() * 4)]; t.comments.push({ id: uid(), by: who, text: txt, at: Date.now() }); kind = 'comment'; body = `${memberName(who)}: ${txt}`; }
+  else if (stOf(t) === 0) { t.status = 1; t.statusAt = Date.now(); t.statusBy = who; kind = 'status'; body = `${memberName(who)} zaczął/zaczęła – w trakcie 🟡`; }
+  else { t.completed = true; t.status = 2; t.completedAt = Date.now(); t.completedBy = who; kind = 'done'; body = `${memberName(who)} ukończył(a) 🟢`; }
+  team.notifs.unshift({ id: Date.now(), kind, actor_id: who, task_id: t.id, title: t.title, body, created_at: new Date().toISOString(), read: false });
+  renderNotifBadge();
+  ui.quiet = true; render();
+  $$(`.task[data-id="${t.id}"]`).forEach(x => { x.classList.remove('flash'); void x.offsetWidth; x.classList.add('flash'); });
+  toast(`${NOTIF_ICON[kind]} ${t.title} – ${body}`, null, () => openTask(t.id), 'Pokaż');
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act="demo-live"]');
+  if (!b) return;
+  demoLive.on = !demoLive.on; b.classList.toggle('on', demoLive.on); b.textContent = demoLive.on ? '● Zespół na żywo: wł.' : '○ Zespół na żywo: wył.';
+  if (demoLive.on) { toast('Za chwilę ktoś z zespołu coś zmieni – zobaczysz to na żywo'); clearTimeout(demoLive.timer); demoLive.timer = setTimeout(demoTick, 6000); }
+});
 // ================================================================
 //  TRYB DEMO – przykładowa firma z ludźmi, projektami, zadaniami i kalendarzami (bez zapisu na serwer)
 // ================================================================
@@ -5023,7 +5181,8 @@ function startDemo() {
   T({ title: 'Przejrzeć i zatwierdzić ofertę dla Piekarni Kłos', projectId: 'p-sprzedaz', due: td, time: '10:30', endTime: '11:00', assignees: [ME], priority: 2, status: 1 });
   T({ title: 'Odpisać na maile od klientów', projectId: 'inbox', due: td, assignees: [ME], priority: 3 });
   T({ title: 'Ustalić budżet na I kwartał', projectId: 'p-biuro', sectionId: S('p-biuro', 'Finanse'), due: addDays(td, 2), time: '14:00', endTime: '15:30', assignees: [ME, 'u-ewa', 'u-anna'], priority: 1 });
-  state = normalizeState({ projects, labels, tasks, filters: [], history: tasks.filter(t => t.completedAt).map(t => ({ id: t.id, title: t.title, at: t.completedAt, projectId: t.projectId, priority: t.priority })), settings: Object.assign({}, state.settings, { userName: 'Kamil Nowak', who: 'all' }) });
+  state = normalizeState({ projects, labels, tasks, filters: [], history: tasks.filter(t => t.completedAt).map(t => ({ id: t.id, title: t.title, at: t.completedAt, projectId: t.projectId, priority: t.priority })), settings: Object.assign({}, state.settings, { userName: 'Kamil Nowak', who: 'all', showDesc: false }) });
+  enrichDemo();
   // kalendarze Google (przykładowe)
   const ev = (title, date, o = {}) => Object.assign({ id: uid(), title, date, end: null, time: '', endTime: '', allDay: !o.time, location: '', link: '' }, o);
   team.cals = [
@@ -5052,6 +5211,8 @@ function startDemo() {
   ui.view = location.hash === '#demo' || !location.hash ? { type: 'home' } : hashView();
   ui.stagger = true;
   render();
+  setTimeout(maybeOfferTour, 900);
+  demoLive.timer = setTimeout(demoTick, 20000);
 }
 function exitDemo() {
   try { sessionStorage.removeItem('lt-demo'); } catch (e) { /* */ }
