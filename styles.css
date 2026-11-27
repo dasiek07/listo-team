@@ -3223,3 +3223,79 @@ html.bs-on { overflow: hidden; }
 @media (max-width: 640px) {
   .demo-bar [data-act="tour-start"] { display: none; }
 }
+
+/* ================================================================
+   LISTO TEAM v6 – płynność, stały pasek kalendarza, poradnik kalendarzy
+   ================================================================ */
+.content { scroll-behavior: auto !important; }
+@media (max-width: 900px) {
+  /* bez animacji wejścia na telefonie – lista nie „mruga” i nie skacze po każdym dotknięciu */
+  .content-inner, .content-inner * { animation: none !important; }
+  .content-inner .task, .content-inner .my-row, .content-inner .dd-row { transition: none !important; }
+  #tabbar { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background: var(--bg) !important; }
+}
+/* ---------- kalendarz: stały pasek przycisków ---------- */
+.cal-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; min-height: 40px; }
+.cal-bar .cal-modes { flex: none; }
+.cal-bar .cal-modes button { min-width: 74px; }
+.cal-bar .cal2-nav { display: flex; align-items: center; gap: 4px; flex: none; }
+.cal-bar .cal2-nav .btn { min-width: 64px; justify-content: center; }
+.cal-bar .cal-range { margin-left: auto; }
+.cal-bar .cal-src { margin-left: auto; }
+.cal-bar .cal-range ~ .cal-src { margin-left: 0; }
+#main[data-view="calendar"] .view-header { padding-bottom: 8px; }
+#main[data-view="calendar"] .who-row { margin-bottom: 14px; }
+@media (max-width: 900px) {
+  .cal-bar { gap: 8px; }
+  .cal-bar .cal-modes { width: 100%; display: flex; }
+  .cal-bar .cal-modes button { flex: 1; min-width: 0; min-height: 42px; padding: 0 2px; font-size: 13.5px; }
+  .cal-bar .cal2-nav .btn { min-height: 42px; }
+  .cal-bar .icon-btn { min-width: 42px; min-height: 42px; }
+  .cal-bar .cal-src, .cal-bar .cal-range { min-height: 42px; }
+  #main[data-view="calendar"] .who-row { padding: 2px 0 6px; }
+}
+/* ---------- zadania: filtr rodzaju ---------- */
+.kind-row { display: flex; align-items: center; gap: 8px; margin: -8px 0 16px; flex-wrap: wrap; }
+.kind-seg button { display: inline-flex; align-items: center; gap: 4px; }
+.up-sub { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 8px 2px 2px; }
+.content .group { margin-bottom: 18px; }
+.group-head h3 { font-size: 15.5px; }
+@media (max-width: 900px) {
+  .kind-row { margin-top: -4px; }
+  .kind-seg { flex: 1; display: flex; }
+  .kind-seg button { flex: 1; justify-content: center; }
+  .group-head { position: sticky; top: 0; z-index: 3; background: var(--bg); padding-top: 6px; }
+  .content .group .my-row { padding: 9px 0; }
+  .pl-row { min-height: 54px; }
+}
+/* ---------- poradnik kalendarzy ---------- */
+.cg-intro { font-size: 14px; margin-bottom: 8px; color: var(--text-2); }
+.cg { margin-bottom: 18px; }
+.cg-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.cg-tabs button { min-height: 38px; padding: 0 16px; border-radius: 99px; border: 1.5px solid var(--line-2); font-weight: 700; font-size: 14px; color: var(--text-2); }
+.cg-tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cg-open { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px; text-decoration: none; }
+.cg-steps { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.cg-steps li { display: flex; gap: 12px; align-items: flex-start; }
+.cg-n { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 800; display: grid; place-items: center; }
+.cg-b { flex: 1; min-width: 0; }
+.cg-b p { margin: 4px 0 8px; font-size: 14px; line-height: 1.5; }
+.cg-svg { width: 100%; max-width: 420px; height: auto; display: block; }
+.cg-win { fill: var(--tile); stroke: var(--line-2); stroke-width: 1.5; }
+.cg-bar { fill: var(--hover-2); }
+.cg-dot { fill: var(--line-2); }
+.cg-url { font-size: 9.5px; fill: var(--muted); font-family: inherit; }
+.cg-t { font-size: 10.5px; fill: var(--text-2); font-family: inherit; }
+.cg-t.b { font-weight: 700; fill: var(--text); }
+.cg-t.s { font-size: 9px; fill: var(--muted); }
+.cg-t.w { fill: #fff; font-weight: 700; }
+.cg-t.a { fill: var(--accent-text); font-weight: 700; }
+.cg-ln { fill: var(--line-2); }
+.cg-acc { fill: var(--accent); }
+.cg-field { fill: var(--bg); stroke: var(--line-2); }
+.cg-menu { fill: var(--bg); stroke: var(--line-2); filter: drop-shadow(0 4px 8px rgba(0,0,0,.25)); }
+.cg-hl { fill: none; stroke: #f5a531; stroke-width: 2.5; stroke-dasharray: 5 3; }
+.cg-hlc { fill: color-mix(in srgb, #f5a531 25%, transparent); stroke: #f5a531; stroke-width: 2; }
+.cg-on { fill: var(--st2); }
+.cg-knob { fill: #fff; }
+.nav-ph { visibility: hidden; display: inline-block; width: 32px; height: 32px; }

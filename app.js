@@ -572,7 +572,7 @@ function renderMain() {
     <button class="fab" data-act="quick-add" aria-label="Dodaj zadanie">${I.plus}</button>`;
   ui.stagger = false; ui.quiet = false;
   const content = $('.content', main), bar = $('.topbar', main);
-  if (ui.lastViewKey === key) content.scrollTop = prevScroll;
+  if (ui.lastViewKey === key) { content.style.scrollBehavior = 'auto'; content.scrollTop = prevScroll; content.style.scrollBehavior = ''; }
   ui.lastViewKey = key;
   const onScroll = () => bar.classList.toggle('scrolled', content.scrollTop > 48);
   content.addEventListener('scroll', onScroll, { passive: true });
@@ -978,7 +978,8 @@ function openTask(id, focusTitle) {
   if (ui.addForm && !ui.addForm.ctx.startsWith('sub:' + id)) ui.addForm = null;
   if (focusTitle) ui.focusSel = '.tm-title';
   closePopover();
-  render();
+  renderModal();
+  if (ui.focusSel) { const el = $(ui.focusSel); ui.focusSel = null; el?.focus(); }
 }
 function closeModal() {
   animateOut($('#modal-root .overlay'), () => {
@@ -5208,7 +5209,7 @@ function myRow(t, o = {}) {
   if (t.time && o.time !== false && !(o.date && t.due !== todayStr())) meta.push(`<b class="my-tm">${timeRange(t)}</b>`);
   if (o.date && t.due && !(t.time && t.due === todayStr())) meta.push(`<span class="${late ? 'r' : ''}">${dueLabel(t).label}</span>`);
   if (o.who && t.assignees.length) meta.push(`<span class="my-whos">${avatars(t.assignees, 16, 3)} ${esc(t.assignees.map(firstName).join(', '))}</span>`);
-  else if (others.length) meta.push(`<span title="${esc(others.map(memberName).join(', '))}">razem z: ${esc(others.slice(0, 3).map(firstName).join(', '))}${others.length > 3 ? ` +${others.length - 3}` : ''}</span>`);
+  else if (others.length) meta.push(`<span title="${esc(others.map(memberName).join(', '))}">${others.length > 2 ? `👥 Ty i ${others.length} ${plural(others.length, 'osoba', 'osoby', 'osób')}` : 'razem z: ' + esc(others.map(firstName).join(', '))}</span>`);
   if (p && !p.isInbox) meta.push(`<span class="my-pj"><i style="--c:${p.color && p.color !== '#808080' ? p.color : '#8f9aa6'}"></i>${esc(p.name)}</span>`);
   if (t.location) meta.push(`<span>${sz(I.pin, 12)} ${esc(t.location)}</span>`);
   return `<div class="my-row st-${stOf(t)} ${t.completed ? 'done' : ''} ${t.kind === 'event' ? 'is-event' : ''}" data-id="${t.id}" style="--c:${itemColor(t)}">
@@ -5279,10 +5280,12 @@ function renderMy() {
   const empty = txt => `<div class="my-empty">${txt}</div>`;
   const nowBody = over.length || prog.length ? (over.length ? `<div class="my-sub r">Po terminie</div>${rows(over, { date: true })}` : '') + (prog.length ? `<div class="my-sub y">W trakcie</div>${rows(prog, { date: true })}` : '') : empty('Nic zaległego – tak trzymaj ✓');
   const untimed = todayT.filter(t => !t.time);
-  const todayBody = (timed.length ? `<div class="my-sub">Plan dnia</div><div class="my-plan">${timed.map(x => x.e ? myGcalRow(x.e) : myRow(x.t)).join('')}</div>` : '')
-    + (untimed.length ? `<div class="my-sub">Do zrobienia</div>${rows(untimed)}` : '')
+  const meetE = [...todayE.map(t => ({ t, k: t.time || '' })), ...gToday.map(e => ({ e, k: e.time || '' }))].sort((a, b) => a.k.localeCompare(b.k));
+  const todayTs = todayT.slice().sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
+  const todayBody = (meetE.length ? `<div class="my-sub">📅 Spotkania</div><div class="my-plan">${meetE.map(x => x.e ? myGcalRow(x.e) : myRow(x.t)).join('')}</div>` : '')
+    + (todayTs.length ? `<div class="my-sub">✅ Zadania</div>${rows(todayTs)}` : '')
     + (hang.length ? `<div class="my-sub g">Ukończone</div>${rows(hang)}` : '')
-    + (!timed.length && !untimed.length && !hang.length ? empty('Dziś wolne – dodaj coś albo zajrzyj do zespołu.') : '');
+    + (!meetE.length && !todayTs.length && !hang.length ? empty('Dziś wolne – dodaj coś albo zajrzyj do zespołu.') : '');
   const left = myCard('now', '🔥 Na teraz', over.length + prog.length || '', nowBody, { cls: over.length ? 'alert' : '' })
     + myCard('today', `📌 Dziś <span class="my-d">${parseDate(td).getDate()} ${monthGen(td)}</span>`, todayT.length + todayE.length + gToday.length || '', todayBody, { right: `<button class="icon-btn" data-act="cal-goday" data-date="${td}" title="Otwórz dzień w kalendarzu">${sz(I.calMonth, 16)}</button>` });
   const byDay = list => { let last = '', out = ''; list.forEach(t => { if (t.due !== last) { last = t.due; out += `<div class="my-sub">${cap(PL_DAYS[dow(t.due)])} ${parseDate(t.due).getDate()} ${monthGen(t.due)}</div>`; } out += myRow(t); }); return out; };
@@ -5552,7 +5555,7 @@ function renderCalendar() {
   const people = team.members.length ? `<div class="cal-people">${[['all', sz(I.team, 15), 'Wszyscy'], ...team.members.map(m => [m.user_id, avatar(m.user_id, 20), firstName(m.user_id)]), ['none', '<span class="av none" style="--s:20px">?</span>', 'Nieprzypisane']].map(([v, ic, l]) => { const w = state.settings.who || 'all', on = w === v || (v === me() && w === 'me'); return `<button class="cp-chip ${on ? 'on' : ''}" data-act="cal-who" data-w="${v}" style="--c:${v === 'all' || v === 'none' ? 'var(--accent)' : memberColor(v)}">${ic}<span>${esc(l)}</span></button>`; }).join('')}</div>` : '';
   let html = header(`<span class="cal2-title">${calTitle(mode, base)}</span>`, { icon: sz(I.calMonth, 24), iconCls: 'tile', barTitle: 'Kalendarz', after: people,
     right: `<div class="seg-inline cal-modes">${CAL_MODES.map(([v, l]) => `<button class="${mode === v ? 'sel' : ''}" data-act="cal-mode" data-v="${v}">${l}</button>`).join('')}</div>
-      <div class="cal2-nav">${mode === 'agenda' ? '' : `<button class="icon-btn" data-act="cal-step" data-n="-1" title="Wstecz">${I.left}</button>`}<button class="btn" data-act="cal-step" data-n="0">Dziś</button>${mode === 'agenda' ? '' : `<button class="icon-btn" data-act="cal-step" data-n="1" title="Dalej">${I.right}</button>`}</div>
+      <div class="cal2-nav">${mode === 'agenda' ? '<span class="icon-btn nav-ph" aria-hidden="true"></span>' : `<button class="icon-btn" data-act="cal-step" data-n="-1" title="Wstecz">${I.left}</button>`}<button class="btn" data-act="cal-step" data-n="0">Dziś</button>${mode === 'agenda' ? '<span class="icon-btn nav-ph" aria-hidden="true"></span>' : `<button class="icon-btn" data-act="cal-step" data-n="1" title="Dalej">${I.right}</button>`}</div>
       ${['week', 'team'].includes(mode) ? `<button class="btn cal-range" data-act="cal-range" title="Zakres godzin i dni robocze">${sz(I.clock, 15)} ${ra}:00–${rb}:00${mode === 'week' && state.settings.calWork ? ' · Pn–Pt' : ''}</button>` : ''}<button class="btn cal-src" data-act="cal-src">${sz(I.eye, 15)} Kalendarze</button>` });
   if (mode === 'month') {
     const first = parseDate(base), y = first.getFullYear(), m = first.getMonth();
@@ -5928,7 +5931,7 @@ renderMy = function () {
   const empty = (ic, txt) => `<div class="mp-empty"><span>${ic}</span>${txt}</div>`;
   let body = '';
   if (tab === 'now') body = (over.length ? `<div class="my-sub r">Po terminie – zrób najpierw</div>${rows(over, { date: true })}` : '') + (prog.length ? `<div class="my-sub y">W trakcie</div>${rows(prog, { date: true })}` : '') || empty('✅', 'Nic zaległego i nic rozpoczętego.');
-  else if (tab === 'today') { const untimed = todayT.filter(t => !t.time); body = (timed.length ? `<div class="my-sub">Według godzin</div>${timed.map(x => x.e ? myGcalRow(x.e) : myRow(x.t)).join('')}` : '') + (untimed.length ? `<div class="my-sub">W ciągu dnia</div>${rows(untimed)}` : '') + (hang.length ? `<div class="my-sub g">Zrobione</div>${rows(hang)}` : '') || empty('☀️', 'Na dziś nic nie masz.'); }
+  else if (tab === 'today') { const meetE = [...todayE.map(t => ({ t, k: t.time || '' })), ...gToday.map(e => ({ e, k: e.time || '' }))].sort((a, b) => a.k.localeCompare(b.k)), tks = todayT.slice().sort((a, b) => (a.time || '99').localeCompare(b.time || '99')); body = (meetE.length ? `<div class="my-sub">📅 Spotkania</div>${meetE.map(x => x.e ? myGcalRow(x.e) : myRow(x.t)).join('')}` : '') + (tks.length ? `<div class="my-sub">✅ Zadania</div>${rows(tks)}` : '') + (hang.length ? `<div class="my-sub g">Zrobione</div>${rows(hang)}` : '') || empty('☀️', 'Na dziś nic nie masz.'); }
   else if (tab === 'tomorrow') body = rows(tomList) || empty('🌙', 'Na jutro jeszcze nic.');
   else if (tab === 'week') { let last = ''; week.forEach(t => { if (t.due !== last) { last = t.due; body += `<div class="my-sub">${cap(PL_DAYS[dow(t.due)])} ${parseDate(t.due).getDate()} ${monthGen(t.due)}</div>`; } body += myRow(t); }); body = body || empty('🗓️', 'Spokojny tydzień.'); }
   else body = rows(later, { date: true }) || empty('📥', 'Pusto.');
@@ -5985,6 +5988,195 @@ renderDayBoard = function (d) {
   const a = by('.my-add'); if (a) { a.msel = '.my-tabs'; a.title = 'Teraz, dziś, jutro, tydzień'; a.text = 'Przełączaj zakładki, aby zobaczyć <b>tylko swoje</b> zadania na wybrany czas. <b>Teraz</b> to zaległe i rozpoczęte – zrób je najpierw.'; }
   const g = by('.my-grid'); if (g) { g.msel = '.my-dots, .mp-list'; g.title = 'Przenieś, przekaż, zmień status'; g.text = 'Przy każdym zadaniu jest przycisk <b>⋯</b>. Otwiera proste menu: zmiana <b>statusu</b>, <b>przeniesienie</b> na inny dzień jednym dotknięciem i <b>przypisanie</b> osoby. Na telefonie to samo menu otwiera dotknięcie kółka z osobą.'; }
   const w = TOUR.find(s => s.sel === '.cal-range'); if (w) { w.msel = '.wl-h'; w.text += ' Na telefonie tydzień jest <b>listą dni</b> – dotknij dnia, aby zobaczyć szczegóły.'; }
+})();
+
+// ================================================================
+//  v6 – płynność, zadania + spotkania razem, stały pasek kalendarza,
+//  wybór powiadomień, poradnik kalendarzy z ilustracjami, automatyczna aktualizacja
+// ================================================================
+// ---------- na telefonie listy używają czytelnych wierszy „Moje” ----------
+const v1TaskRow = taskRow;
+taskRow = function (t, o = {}) {
+  if (ui.phoneRows && !o.asActive && !o.nested && !ui.modal) return myRow(t, { who: (state.settings.who || 'me') !== 'me' && !o.exceptUid, date: !o.hideToday });
+  return v1TaskRow(t, o);
+};
+const v5RenderMain = renderMain;
+renderMain = function () {
+  ui.phoneRows = isNarrow() && ['tasks', 'team', 'person'].includes(ui.view.type);
+  try { v5RenderMain(); } finally { ui.phoneRows = false; }
+  calToolbar();
+};
+
+// ---------- ZADANIA: zadania i spotkania w jednym miejscu, z filtrem ----------
+const KIND_OPTS = [['all', 'Wszystko'], ['tasks', '✅ Zadania'], ['events', '📅 Spotkania']];
+renderTasks = function () {
+  const tab = TASK_TABS.some(t => t[0] === ui.taskTab) ? ui.taskTab : 'today'; ui.taskTab = tab;
+  const td = todayStr(), kv = state.settings.kindView || 'all', showT = kv !== 'events', showE = kv !== 'tasks', end14 = addDays(td, 14);
+  const act = active(), tasks = act.filter(t => t.kind !== 'event'), evs = act.filter(t => t.kind === 'event');
+  const on = (t, d) => t.due === d || (t.endDue && t.due < d && d <= t.endDue);
+  const over = tasks.filter(t => t.due && t.due < td).sort(byDue);
+  const today = tasks.filter(t => on(t, td)).sort((a, b) => stOf(b) - stOf(a) || (a.time || '99').localeCompare(b.time || '99') || byDue(a, b));
+  const evToday = dayPlan(td, evs.filter(t => on(t, td)).sort(byDue));
+  const hang = keptDone(t => whoOk(t) && (!t.due || t.due <= td));
+  const upT = tasks.filter(t => t.due > td && t.due <= end14), upE = evs.filter(t => t.due > td && t.due <= end14);
+  const cnt = { today: (showT ? over.length + today.length : 0) + (showE ? evToday.length : 0), upcoming: (showT ? upT.length : 0) + (showE ? upE.length : 0), all: (showT ? tasks.length : 0) + (showE ? evs.filter(t => t.due && t.due >= td && t.due <= end14).length : 0) };
+  const R = (t, o = {}) => taskRow(t, Object.assign({ showProject: true }, o));
+  const grp = (title, inner, n, right = '', attrs = '') => `<div class="group" ${attrs}><div class="group-head"><h3>${title}</h3><span class="count">${n || ''}</span>${right}</div>${inner}</div>`;
+  const plan = list => `<div class="pl-list">${list.map(planRow).join('')}</div>`;
+  let html = header(whoTitle(), { icon: sz(I.tasks, 24), iconCls: 'tile', barTitle: 'Zadania',
+    sub: `${dateLong(td)}${showT && over.length ? ` · <b class="hm-red">${over.length} po terminie</b>` : ''}`,
+    after: `<div class="tabs-big" role="tablist">${TASK_TABS.map(([k, l]) => `<button role="tab" class="${tab === k ? 'on' : ''}" data-act="task-tab" data-t="${k}">${l}${cnt[k] ? `<span>${cnt[k]}</span>` : ''}</button>`).join('')}</div>
+      ${whoChips()}<div class="kind-row"><span class="muted small">Pokaż:</span><div class="seg-inline sm kind-seg">${KIND_OPTS.map(([v, l]) => `<button class="${kv === v ? 'sel' : ''}" data-act="kind-view" data-v="${v}">${l}</button>`).join('')}</div></div>` });
+  let body = '';
+  if (tab === 'today') {
+    if (showT && over.length) body += grp('<span class="red-h">⚠️ Po terminie</span>', over.map(t => R(t)).join(''), over.length, `<button class="btn ghost accent" data-act="reschedule-overdue">Przełóż na dziś</button>`);
+    if (showE) body += grp('📅 Spotkania dziś', evToday.length ? plan(evToday) : '<div class="muted small pad">Dziś brak spotkań.</div>', evToday.length, `<button class="btn ghost" data-act="cal-goday" data-date="${td}">${sz(I.calMonth, 15)} W kalendarzu</button>`);
+    if (showT) body += grp('✅ Zadania na dziś', (today.length ? today.map(t => R(t, { hideToday: true })).join('') : '<div class="muted small pad">Brak zadań na dziś.</div>') + hang.map(t => R(t, { hideToday: true, noDrag: true })).join('') + addTaskButton('today', { due: td }), today.length, hang.length ? `<span class="muted small hang-n">✓ ${hang.length} ukończone</span>` : '', `data-drop="day" data-date="${td}"`);
+  } else if (tab === 'upcoming') {
+    for (let i = 1; i <= 14; i++) {
+      const d = addDays(td, i), tk = showT ? tasks.filter(t => t.due === d).sort(byDue) : [], pe = showE ? dayPlan(d, evs.filter(t => t.due === d).sort(byDue)) : [];
+      if (!tk.length && !pe.length) continue;
+      body += `<div class="group day-group ${dow(d) === 1 ? 'week-start' : ''}" data-drop="day" data-date="${d}"><div class="group-head"><h3>${dayHead(d)}</h3><span class="count">${tk.length + pe.length}</span></div>
+        ${pe.length ? `<div class="up-sub">📅 Spotkania</div>${plan(pe)}` : ''}${tk.length ? `${pe.length ? '<div class="up-sub">✅ Zadania</div>' : ''}${tk.map(t => R(t, { hideToday: true })).join('')}` : ''}</div>`;
+    }
+    const later = showT ? tasks.filter(t => t.due && t.due > end14).sort(byDue) : [];
+    if (later.length) body += grp('Później', later.map(t => R(t)).join(''), later.length);
+  } else {
+    if (showT) {
+      const prog = tasks.filter(t => stOf(t) === 1).sort(byDue), rest = tasks.filter(t => stOf(t) !== 1);
+      body += groupBlock('a-prog', '🟡 W trakcie', prog) + groupBlock('a-over', '<span class="red-h">⚠️ Po terminie</span>', rest.filter(t => t.due && t.due < td).sort(byDue))
+        + groupBlock('a-due', '📆 Z terminem', rest.filter(t => t.due && t.due >= td).sort(byDue)) + groupBlock('a-nod', '📥 Bez terminu', rest.filter(t => !t.due).sort((a, b) => a.priority - b.priority), { add: addTaskButton('all', {}) });
+    }
+    if (showE) {
+      const list = evs.filter(t => t.due && (t.endDue || t.due) >= td && t.due <= end14).sort(byDue);
+      body += grp('📅 Spotkania – najbliższe 14 dni', list.length ? `<div class="pl-list">${list.map(t => `<div class="pl-day">${dayHead(t.due < td ? td : t.due)}</div>` + planRow({ t })).join('')}</div>` : '<div class="muted small pad">Brak zaplanowanych spotkań.</div>', list.length);
+    }
+  }
+  html += body || emptyState(kv === 'events' ? 'Brak spotkań' : 'Nic tu nie ma', 'Dodaj coś przyciskiem „+ Nowe zadanie” albo zmień filtr osób.');
+  return html;
+};
+document.addEventListener('click', e => { const b = e.target.closest('[data-act="kind-view"]'); if (b) { state.settings.kindView = b.dataset.v; save(); ui.quiet = true; renderMain(); } });
+
+// ---------- KALENDARZ: „Moje / Cały zespół”, stały pasek przycisków, Zespół na telefonie jako lista ----------
+const v5RenderCalendar = renderCalendar;
+renderCalendar = function () {
+  let html;
+  if (isNarrow() && ui.calMode === 'team') {
+    const dm = ui.dayMode; ui.calMode = 'day'; ui.dayMode = 'people';
+    try { html = v5RenderCalendar(); } finally { ui.calMode = 'team'; ui.dayMode = dm; }
+    html = html.replace('class="sel" data-act="cal-mode" data-v="day"', 'class="" data-act="cal-mode" data-v="day"').replace('class="" data-act="cal-mode" data-v="team"', 'class="sel" data-act="cal-mode" data-v="team"').replace(/<div class="seg-inline db-mode">[\s\S]*?<\/div>/, '');
+  } else html = v5RenderCalendar();
+  return html.replace(/<div class="cal-people">[\s\S]*?<\/div>/, whoChips());
+};
+// przyciski widoku zawsze w tym samym miejscu – osobny pasek pod tytułem
+function calToolbar() {
+  if (ui.view.type !== 'calendar') return;
+  const vh = $('#main .view-header'), vr = vh && $('.vh-right', vh);
+  if (!vr || !vr.children.length) return;
+  const bar = document.createElement('div'); bar.className = 'cal-bar';
+  bar.append(...vr.children); vh.after(bar);
+}
+
+// ---------- powiadomienia: wybór powodów i projektów ----------
+const NOTIF_KINDS = [['assigned', '👤', 'Ktoś przypisze mi zadanie lub spotkanie'], ['status', '🔄', 'Zmiana statusu zadania, które zleciłem lub robię'], ['done', '✅', 'Ukończenie zadania, które zleciłem'], ['comment', '💬', 'Nowy komentarz'], ['reminder', '⏰', 'Przypomnienie przed godziną zadania / spotkania'], ['overdue', '⚠️', 'Codzienna lista zaległych (8:00)'], ['nudge', '👋', '„Przypomnij” od kogoś z zespołu']];
+function notifOn(n) {
+  const s = state.settings;
+  if ((s.notifOff || []).includes(n.kind)) return false;
+  const t = n.task_id && task(n.task_id);
+  if (t && (s.notifMuteProj || []).includes(t.projectId || 'inbox')) return false;
+  return true;
+}
+const v1OnNotif = onNotif;
+onNotif = function (n) { if (!notifOn(n)) { n.read = true; if (!team.notifs.some(x => x.id === n.id)) team.notifs.unshift(n); return; } v1OnNotif(n); };
+renderNotifBadge = function () {
+  const n = team.notifs.filter(x => !x.read && notifOn(x)).length;
+  $$('[data-act="notifications"]').forEach(b => { b.dataset.n = n ? (n > 99 ? '99+' : n) : ''; b.classList.toggle('has-n', !!n); });
+  try { if (navigator.setAppBadge) { if (n) navigator.setAppBadge(n); else navigator.clearAppBadge(); } } catch (e) { /* */ }
+};
+const v1Notifications = notifications;
+notifications = function (anchor) { const all = team.notifs; team.notifs = all.filter(notifOn); try { v1Notifications(anchor); } finally { team.notifs = all; } };
+function notifPrefsHtml() {
+  const s = state.settings, off = s.notifOff || [], mute = s.notifMuteProj || [];
+  const sec = (i, t, b) => `<section class="pf-card" style="--i:${i}"><h3>${t}</h3>${b}</section>`;
+  return sec(3, '🔔 Za co dostajesz powiadomienia', `<p class="pf-p">Wyłącz to, czego nie potrzebujesz. Wyłączone powiadomienia nie przychodzą jako push i nie pojawiają się pod dzwonkiem.</p>`
+      + NOTIF_KINDS.map(([k, ic, l]) => prefRow(`${ic} ${l}`, '', `<button class="switch ${off.includes(k) ? '' : 'on'}" data-act="nf-kind" data-k="${k}" role="switch" aria-checked="${!off.includes(k)}"><i></i></button>`)).join(''))
+    + sec(4, '📁 Z których projektów', `<p class="pf-p">Możesz wyciszyć cały projekt – np. taki, w którym tylko podglądasz pracę innych.</p>`
+      + [proj('inbox'), ...userProjects()].filter(Boolean).map(p => prefRow(`<span class="pj-dot" style="--c:${p.color && p.color !== '#808080' ? p.color : '#8f9aa6'};display:inline-block;margin:0 8px 0 0"></span>${esc(p.isInbox ? 'Bez projektu (Skrzynka)' : p.name)}`, '', `<button class="switch ${mute.includes(p.id) ? '' : 'on'}" data-act="nf-proj" data-k="${p.id}" role="switch" aria-checked="${!mute.includes(p.id)}"><i></i></button>`)).join(''));
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act="nf-kind"], [data-act="nf-proj"]'); if (!b) return;
+  const s = state.settings, key = b.dataset.act === 'nf-kind' ? 'notifOff' : 'notifMuteProj', h = new Set(s[key] || []);
+  h.has(b.dataset.k) ? h.delete(b.dataset.k) : h.add(b.dataset.k); s[key] = [...h];
+  if (key === 'notifOff') s.overduePush = !h.has('overdue');
+  save(); if (typeof pushPrefs === 'function') pushPrefs();
+  const onNow = !h.has(b.dataset.k); b.classList.toggle('on', onNow); b.setAttribute('aria-checked', String(onNow)); renderNotifBadge();
+});
+
+// ---------- poradnik podłączania kalendarzy (z ilustracjami) ----------
+const mockWin = (title, inner, h = 150) => `<svg class="cg-svg" viewBox="0 0 320 ${h}" role="img" aria-label="${esc(title)}"><rect x="1" y="1" width="318" height="${h - 2}" rx="12" class="cg-win"/><rect x="1" y="1" width="318" height="24" rx="12" class="cg-bar"/><rect x="1" y="14" width="318" height="11" class="cg-bar"/><circle cx="16" cy="13" r="3.5" class="cg-dot"/><circle cx="28" cy="13" r="3.5" class="cg-dot"/><circle cx="40" cy="13" r="3.5" class="cg-dot"/><text x="160" y="17" class="cg-url" text-anchor="middle">${esc(title)}</text>${inner}</svg>`;
+const hl = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7" class="cg-hl"/>`;
+const tx = (x, y, s, cls = '') => `<text x="${x}" y="${y}" class="cg-t ${cls}">${s}</text>`;
+const ln = (x, y, w, cls = '') => `<rect x="${x}" y="${y}" width="${w}" height="7" rx="3.5" class="cg-ln ${cls}"/>`;
+const CAL_GUIDES = {
+  google: { name: 'Google', open: ['https://calendar.google.com/calendar/r/settings', 'Otwórz ustawienia Kalendarza Google'], steps: [
+    ['Na komputerze otwórz <b>calendar.google.com</b>. Po lewej, w „Moje kalendarze”, najedź na kalendarz i kliknij <b>⋮</b> → <b>Ustawienia i udostępnianie</b>.',
+      mockWin('calendar.google.com', tx(14, 46, 'Moje kalendarze', 'b') + `<rect x="14" y="56" width="10" height="10" rx="2" class="cg-acc"/>` + tx(30, 65, 'Firma') + `<circle cx="132" cy="61" r="9" class="cg-hlc"/>` + tx(128, 65, '⋮', 'b') + `<rect x="150" y="50" width="152" height="80" rx="8" class="cg-menu"/>` + tx(160, 70, 'Wyświetl tylko ten') + tx(160, 92, 'Ustawienia i', 'b') + tx(160, 106, 'udostępnianie', 'b') + hl(154, 79, 144, 33) + ln(14, 82, 90) + ln(14, 100, 70))],
+    ['Przewiń do sekcji <b>Integracja kalendarza</b> i skopiuj <b>Adres prywatny w formacie iCal</b> (ikona kopiowania obok).',
+      mockWin('Ustawienia kalendarza', tx(14, 46, 'Integracja kalendarza', 'b') + ln(14, 56, 160) + tx(14, 82, 'Adres prywatny w formacie iCal', 'b') + `<rect x="14" y="90" width="250" height="24" rx="6" class="cg-field"/>` + tx(22, 106, 'https://calendar.google.com/…/basic.ics', 's') + `<rect x="270" y="90" width="34" height="24" rx="6" class="cg-acc"/>` + tx(279, 106, '⧉', 'w') + hl(10, 86, 298, 32) + ln(14, 128, 120))],
+    ['Wróć tutaj, wklej link w pole <b>Adres iCal</b>, wybierz <b>Osobisty</b> albo <b>Zespołowy</b> i kliknij <b>Podłącz kalendarz</b>.',
+      mockWin('Listo Team – Kalendarze', `<rect x="14" y="36" width="140" height="22" rx="6" class="cg-acc"/>` + tx(24, 51, 'Osobisty (tylko ja)', 'w') + `<rect x="160" y="36" width="140" height="22" rx="6" class="cg-field"/>` + tx(170, 51, 'Zespołowy') + tx(14, 76, 'Adres iCal (link)', 'b') + `<rect x="14" y="82" width="290" height="24" rx="6" class="cg-field"/>` + tx(22, 98, 'https://calendar.google.com/…/basic.ics', 's') + hl(10, 78, 298, 32) + `<rect x="14" y="116" width="130" height="24" rx="7" class="cg-acc"/>` + tx(26, 132, 'Podłącz kalendarz', 'w'), 152)],
+  ] },
+  outlook: { name: 'Outlook', open: ['https://outlook.live.com/calendar/0/options/calendar/SharedCalendars', 'Otwórz ustawienia Outlooka'], steps: [
+    ['W <b>outlook.com</b> (lub Outlook w przeglądarce) kliknij <b>⚙ Ustawienia</b> → <b>Kalendarz</b> → <b>Udostępnione kalendarze</b>.',
+      mockWin('outlook.live.com', tx(14, 46, 'Ustawienia', 'b') + tx(14, 70, 'Kalendarz') + hl(10, 58, 110, 18) + tx(130, 46, 'Udostępnione kalendarze', 'b') + hl(126, 34, 180, 18) + ln(130, 62, 150) + ln(130, 78, 120) + ln(14, 90, 80) + ln(14, 106, 70))],
+    ['W części <b>Publikowanie kalendarza</b> wybierz kalendarz i „Może wyświetlać wszystkie szczegóły”, kliknij <b>Publikuj</b> i skopiuj <b>link ICS</b>.',
+      mockWin('Publikowanie kalendarza', tx(14, 46, 'Publikowanie kalendarza', 'b') + `<rect x="14" y="54" width="130" height="22" rx="6" class="cg-field"/>` + tx(22, 69, 'Kalendarz ▾') + `<rect x="150" y="54" width="70" height="22" rx="6" class="cg-acc"/>` + tx(160, 69, 'Publikuj', 'w') + tx(14, 98, 'ICS:', 'b') + `<rect x="44" y="86" width="260" height="22" rx="6" class="cg-field"/>` + tx(52, 101, 'https://outlook.live.com/…/calendar.ics', 's') + hl(40, 82, 268, 30))],
+    ['Wklej link tutaj w pole <b>Adres iCal</b> i kliknij <b>Podłącz kalendarz</b>.', ''],
+  ] },
+  apple: { name: 'Apple iCloud', open: null, steps: [
+    ['Na iPhonie otwórz <b>Kalendarz</b> → <b>Kalendarze</b> (na dole) → ikona <b>ⓘ</b> przy wybranym kalendarzu.',
+      mockWin('Kalendarz – iPhone', tx(14, 46, 'ICLOUD', 's') + `<circle cx="20" cy="62" r="5" class="cg-acc"/>` + tx(32, 66, 'Praca') + `<circle cx="290" cy="62" r="9" class="cg-hlc"/>` + tx(286, 66, 'i', 'b') + `<circle cx="20" cy="86" r="5" class="cg-dot"/>` + tx(32, 90, 'Dom') + ln(14, 110, 120))],
+    ['Włącz <b>Kalendarz publiczny</b>, dotknij <b>Udostępnij łącze…</b> → <b>Kopiuj</b>. Link zaczyna się od <code>webcal://</code> – Listo Team sam go poprawi.',
+      mockWin('Edytuj kalendarz', tx(14, 50, 'Kalendarz publiczny', 'b') + `<rect x="262" y="38" width="40" height="22" rx="11" class="cg-on"/><circle cx="291" cy="49" r="9" class="cg-knob"/>` + hl(10, 34, 298, 30) + tx(14, 86, 'Udostępnij łącze…', 'a') + hl(10, 72, 160, 22) + ln(14, 106, 200) + ln(14, 122, 150))],
+    ['Wklej link tutaj w pole <b>Adres iCal</b> i kliknij <b>Podłącz kalendarz</b>. Uwaga: kalendarz publiczny widzi każdy, kto ma link.', ''],
+  ] },
+  other: { name: 'Inny', open: null, steps: [
+    ['Każdy kalendarz, który daje <b>link iCal / ICS</b> (adres kończący się zwykle na <code>.ics</code>), np. Proton, Fastmail, Nextcloud, systemy rezerwacji, grafiki zmian.', ''],
+    ['Znajdź w jego ustawieniach „Eksport”, „Subskrybuj”, „Link iCal” lub „Publikuj”, skopiuj adres i wklej go tutaj.', ''],
+  ] },
+};
+function calGuideHtml() {
+  const k = CAL_GUIDES[ui.cgTab] ? ui.cgTab : 'google', g = CAL_GUIDES[k];
+  return `<div class="cg"><div class="cg-tabs">${Object.entries(CAL_GUIDES).map(([id, x]) => `<button class="${id === k ? 'on' : ''}" data-act="cg-tab" data-k="${id}">${x.name}</button>`).join('')}</div>
+    ${g.open ? `<a class="btn cg-open" href="${g.open[0]}" target="_blank" rel="noopener">${sz(I.link, 15)} ${g.open[1]}</a>` : ''}
+    <ol class="cg-steps">${g.steps.map(([t, img], i) => `<li><span class="cg-n">${i + 1}</span><div class="cg-b"><p>${t}</p>${img}</div></li>`).join('')}</ol></div>`;
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-act="cg-tab"]'); if (!b) return; ui.cgTab = b.dataset.k; const c = $('.cg'); if (c) c.outerHTML = calGuideHtml(); });
+const v4RenderPrefs = renderPrefs;
+renderPrefs = function () {
+  let html = v4RenderPrefs();
+  const tab = PREF_TABS.some(t => t[0] === ui.prefTab) ? ui.prefTab : 'general';
+  if (tab === 'calendars') html = html.replace(/<ol class="gc-steps">[\s\S]*?<\/ol>/, '').replace('<form class="cal-form">', `<div class="cg-intro"><b>Jak zdobyć link do kalendarza?</b> Wybierz, skąd jest Twój kalendarz – pokażemy krok po kroku.</div>${calGuideHtml()}<form class="cal-form">`).replace('Podłącz Kalendarz Google', 'Podłącz kalendarz (Google, Outlook, iCloud…)');
+  if (tab === 'notif') { const i = html.lastIndexOf('</div></div>'); html = html.slice(0, i) + notifPrefsHtml() + html.slice(i); }
+  return html;
+};
+
+// ---------- automatyczna aktualizacja: nowa wersja strony wczytuje się sama ----------
+(() => {
+  const cur = document.querySelector('meta[name="lt-version"]')?.content;
+  if (!cur || cur === 'dev') return;
+  let shown = false;
+  const check = async first => {
+    try {
+      const j = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json());
+      if (!j.v || j.v === cur) return;
+      if (first || (!ui.modal && !$('#bsheet') && !ui.addForm && document.visibilityState === 'visible' && first !== false)) { location.reload(); return; }
+      if (!shown) { shown = true; toast('Jest nowa wersja aplikacji', null, () => location.reload(), 'Odśwież'); }
+    } catch (e) { /* bez internetu */ }
+  };
+  setTimeout(() => check(true), 2500);
+  setInterval(() => check(false), 5 * 60000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(!ui.modal && !$('#bsheet')); });
 })();
 
 // przełączanie układu telefon ⇄ komputer (obrót ekranu, zmiana szerokości okna)

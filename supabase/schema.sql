@@ -274,12 +274,19 @@ create trigger ws_items_notify after insert or update on public.ws_items for eac
 -- ---------- wysyłka push: każde nowe powiadomienie → funkcja „push” (Edge Function) ----------
 create or replace function public.ws_notify_push() returns trigger
 language plpgsql security definer set search_path = public, extensions as $$
-declare url text; secret text;
+declare url text; secret text; prefs jsonb;
 begin
   select value into url from private.secrets where key = 'push_url';
   select value into secret from private.secrets where key = 'push_secret';
   if url is null or secret is null then return new; end if;
   if not exists (select 1 from push_subs where user_id = new.user_id) then return new; end if;
+  -- wyłączone w ustawieniach: rodzaj powiadomienia lub projekt
+  select p.state->'settings' into prefs from team_prefs p where p.user_id = new.user_id;
+  if prefs is not null then
+    if coalesce(prefs->'notifOff', '[]'::jsonb) ? new.kind then return new; end if;
+    if new.task_id is not null and exists (select 1 from ws_items i where i.workspace_id = new.workspace_id and i.id = new.task_id
+        and coalesce(prefs->'notifMuteProj', '[]'::jsonb) ? coalesce(i.data->>'projectId', 'inbox')) then return new; end if;
+  end if;
   perform net.http_post(url := url, body := jsonb_build_object('id', new.id),
     headers := jsonb_build_object('Content-Type', 'application/json', 'x-push-secret', secret), timeout_milliseconds := 8000);
   return new;

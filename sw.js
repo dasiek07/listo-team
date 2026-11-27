@@ -18,8 +18,10 @@ self.addEventListener('fetch', e => {
     return;
   }
   if (url.origin !== location.origin) return; // zapytania do serwera danych zawsze przez sieć
-  e.respondWith(fetch(e.request).then(r => { if (r.ok) { const copy = r.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); } return r; })
-    .catch(() => caches.match(e.request).then(r => r || caches.match('index.html'))));
+  if (url.pathname.endsWith('version.json')) return;
+  // zawsze najpierw świeża wersja z sieci (z pominięciem pamięci przeglądarki), kopia tylko na wypadek braku internetu
+  e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(r => { if (r.ok) { const copy = r.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); } return r; })
+    .catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));
 });
 
 // ---------- powiadomienia push ----------

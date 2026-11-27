@@ -13,5 +13,12 @@ $ver = 'listo-team-' + (Get-Date -Format 'yyyyMMddHHmmss')
 $sw = Join-Path $dist 'sw.js'
 $utf8 = New-Object System.Text.UTF8Encoding $false
 [IO.File]::WriteAllText($sw, ([IO.File]::ReadAllText($sw, $utf8) -replace "listo-team-dev", $ver), $utf8)
+# numer wersji w adresach plików – przeglądarka nie może użyć starej kopii z pamięci
+$ix = Join-Path $dist 'index.html'
+$html = [IO.File]::ReadAllText($ix, $utf8)
+$html = $html -replace 'href="styles\.css"', "href=""styles.css?v=$ver""" -replace 'src="app\.js"', "src=""app.js?v=$ver""" -replace 'src="config\.js"', "src=""config.js?v=$ver""" -replace '<meta name="lt-version" content="dev">', "<meta name=""lt-version"" content=""$ver"">"
+[IO.File]::WriteAllText($ix, $html, $utf8)
+# plik z numerem wersji – otwarta aplikacja sprawdza go i sama się odświeża
+[IO.File]::WriteAllText((Join-Path $dist 'version.json'), "{""v"":""$ver""}", $utf8)
 New-Item -ItemType File -Path (Join-Path $dist '.nojekyll') -Force | Out-Null
 "dist gotowy ($ver)"
