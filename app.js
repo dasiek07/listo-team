@@ -5419,7 +5419,7 @@ function ddRow(x, o = {}) {
   if (p) meta.push(esc(projName(p)));
   if (t.location) meta.push(`${sz(I.pin, 11)} ${esc(t.location)}`);
   if (o.over && t.due) meta.push(`<span class="r">${dueLabel(t).label}</span>`);
-  if (!o.noWho) meta.push(t.assignees.length ? esc(t.assignees.map(firstName).join(', ')) : '<i>nieprzypisane</i>');
+  if (!o.noWho) meta.push(t.assignees.length ? esc(t.assignees.slice(0, 2).map(firstName).join(', ') + (t.assignees.length > 2 ? ` +${t.assignees.length - 2}` : '')) : '<i>nieprzypisane</i>');
   return `<div class="dd-row st-${stOf(t)} ${t.completed ? 'done' : ''} ${live ? 'live' : ''} ${t.kind === 'event' ? 'is-event' : ''}" data-id="${t.id}" style="--c:${itemColor(t)}">
     <span class="dd-t">${t.time && !(t.endDue && t.due !== (o.d || t.due)) ? `<b>${t.time}</b>${t.endTime ? `<i>${t.endTime}</i>` : ''}` : `<b class="na">—</b>`}</span><span class="dd-bar"></span>
     ${t.kind === 'event' ? `<span class="dd-evi" title="Wydarzenie">${sz(I.calBig, 14)}</span>` : stSlider(t)}
@@ -5726,6 +5726,270 @@ render = function () {
   if (ui.daySheet) drawDaySheet();
 };
 
+// ================================================================
+//  v5 – maksymalnie proste: dodawanie jednym okienkiem, menu zadania pod palec,
+//  „Moje” na telefonie w zakładkach, kalendarz tygodnia jako lista
+// ================================================================
+const isTouch = () => matchMedia('(hover: none)').matches || isNarrow();
+// ---------- arkusz (od dołu na telefonie, okno na środku na komputerze) ----------
+function bsOpen(html, cls = '') {
+  bsClose(true);
+  const el = document.createElement('div'); el.id = 'bsheet'; el.className = cls;
+  el.innerHTML = `<div class="bs-back" data-bs="close"></div><div class="bs-panel" role="dialog" aria-modal="true"><div class="bs-grip" data-bs="close"></div><button class="icon-btn bs-x" data-bs="close" aria-label="Zamknij">${I.x}</button><div class="bs-body">${html}</div></div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', e => { if (e.target.closest('[data-bs="close"]')) bsClose(); });
+  document.documentElement.classList.add('bs-on');
+  return el;
+}
+function bsClose(now) {
+  const el = $('#bsheet'); if (!el) return;
+  document.documentElement.classList.remove('bs-on');
+  if (now) { el.remove(); return; }
+  el.classList.add('out'); setTimeout(() => el.remove(), 220);
+}
+addEventListener('keydown', e => { if (e.key === 'Escape' && $('#bsheet') && $('#popover')?.hidden !== false) { e.stopPropagation(); bsClose(); } }, true);
+// ---------- wybór daty jednym dotknięciem ----------
+function dateChoices() {
+  const td = todayStr(), out = [[td, 'Dziś'], [addDays(td, 1), 'Jutro']];
+  let w = addDays(td, 2); while ([0, 6].includes(dow(w))) w = addDays(w, 1);
+  out.push([w, cap(PL_DAYS[dow(w)])]);
+  const wk = addDays(td, 7); if (!out.some(o => o[0] === wk)) out.push([wk, 'Za tydzień']);
+  return out;
+}
+const dateLabelShort = d => d ? (relDay(d) || `${PL_DAYS_SHORT[dow(d)]} ${parseDate(d).getDate()} ${PL_MON_SHORT[parseDate(d).getMonth()]}`) : 'Bez terminu';
+function dateChipsHtml(cur, attr) {
+  const ch = dateChoices(), known = ch.some(c => c[0] === cur);
+  return ch.map(([v, l]) => `<button type="button" class="ea-chip ${cur === v ? 'on' : ''}" ${attr}="${v}">${l}<small>${parseDate(v).getDate()} ${PL_MON_SHORT[parseDate(v).getMonth()]}</small></button>`).join('')
+    + `<button type="button" class="ea-chip ${!cur ? 'on' : ''}" ${attr}="">Bez terminu</button>`
+    + `<label class="ea-chip pick ${cur && !known ? 'on' : ''}">${sz(I.calMonth, 15)} ${cur && !known ? dateLabelShort(cur) : 'Inna data'}<input type="date" ${attr}-in value="${cur && !known ? cur : ''}"></label>`;
+}
+function peopleChipsHtml(sel, attr) {
+  const us = [me(), ...team.members.map(m => m.user_id).filter(u => u !== me())];
+  return us.map(u => `<button type="button" class="ea-p ${sel.includes(u) ? 'on' : ''}" ${attr}="${u}" style="--c:${memberColor(u)}">${avatar(u, 30)}<span>${u === me() ? 'Ja' : esc(firstName(u))}</span>${sel.includes(u) ? `<i>${sz(I.checkSmall, 12)}</i>` : ''}</button>`).join('');
+}
+
+// ---------- PROSTE DODAWANIE ----------
+function easyAdd(d = {}) {
+  const st = { title: d.title || '', kind: d.kind || 'task', who: d.assignees ? [...d.assignees] : [me()], due: 'due' in d ? d.due || null : todayStr(),
+    time: d.time || null, endTime: d.endTime || null, prio: d.priority || 4, projectId: d.projectId || 'inbox', sectionId: d.sectionId || null, parentId: d.parentId || null, labels: d.labels || [] };
+  if (!team.members.length) st.who = [];
+  const el = bsOpen('<form class="ea" autocomplete="off"></form>', 'ea-sheet');
+  const f = $('.ea', el);
+  const dur = () => st.time && st.endTime ? hmMin(st.endTime) - hmMin(st.time) : 0;
+  const draw = () => {
+    const ti = $('.ea-title', f), had = document.activeElement === ti, val = ti ? ti.value : st.title;
+    const ev = st.kind === 'event';
+    f.innerHTML = `<div class="ea-top"><b>${ev ? 'Nowe spotkanie' : 'Nowe zadanie'}</b>
+        <div class="seg-inline ea-kind"><button type="button" class="${ev ? '' : 'sel'}" data-k="task">${sz(I.tasks, 15)} Zadanie</button><button type="button" class="${ev ? 'sel' : ''}" data-k="event">${sz(I.calBig, 15)} Spotkanie</button></div></div>
+      <textarea class="ea-title" rows="2" maxlength="300" placeholder="${ev ? 'Jakie spotkanie? np. Rozmowa z klientem' : 'Co trzeba zrobić? np. Wysłać ofertę do klienta'}" enterkeyhint="done"></textarea>
+      <div class="ea-parse"></div>
+      ${team.members.length ? `<div class="ea-l">${ev ? 'Kto bierze udział?' : 'Kto to zrobi?'} <span>${st.who.length ? esc(st.who.map(u => u === me() ? 'Ty' : firstName(u)).join(', ')) : 'nikt – zadanie nieprzypisane'}</span></div><div class="ea-people">${peopleChipsHtml(st.who, 'data-u')}</div>` : ''}
+      <div class="ea-l">Kiedy? <span>${dateLabelShort(st.due)}</span></div><div class="ea-chips">${dateChipsHtml(st.due, 'data-d')}</div>
+      ${st.due ? `<div class="ea-l">O której? <span>${st.time ? (ev && st.endTime ? `${st.time}–${st.endTime}` : st.time) : 'dowolnie w ciągu dnia'}</span></div>
+      <div class="ea-chips">${[['', 'Bez godziny'], ['09:00', '9:00'], ['12:00', '12:00'], ['15:00', '15:00']].map(([v, l]) => `<button type="button" class="ea-chip ${(st.time || '') === v ? 'on' : ''}" data-t="${v}">${l}</button>`).join('')}
+        <label class="ea-chip pick ${st.time && !['09:00', '12:00', '15:00'].includes(st.time) ? 'on' : ''}">${sz(I.clock, 15)} ${st.time && !['09:00', '12:00', '15:00'].includes(st.time) ? st.time : 'Inna'}<input type="time" data-t-in value="${st.time || ''}" step="300"></label></div>
+      ${ev && st.time ? `<div class="ea-l">Jak długo?</div><div class="ea-chips">${[[30, '30 min'], [60, '1 godz.'], [90, '1,5 godz.'], [120, '2 godz.']].map(([m, l]) => `<button type="button" class="ea-chip ${dur() === m ? 'on' : ''}" data-dur="${m}">${l}</button>`).join('')}</div>` : ''}` : ''}
+      <div class="ea-row"><button type="button" class="ea-flag ${st.prio === 1 ? 'on' : ''}" data-prio>${flagIcon(st.prio === 1 ? 1 : 4, 16)} ${st.prio === 1 ? 'Pilne!' : 'Oznacz jako pilne'}</button>
+        <label class="ea-proj">${sz(I.folder, 15)}<select data-pj aria-label="Projekt">${[proj('inbox'), ...userProjects()].filter(Boolean).map(p => `<option value="${p.id}" ${st.projectId === p.id ? 'selected' : ''}>${esc(p.isInbox ? 'Bez projektu' : p.name)}</option>`).join('')}</select></label></div>
+      <div class="ea-btns"><button type="button" class="btn ghost" data-more>Więcej opcji…</button><button type="submit" class="btn primary ea-go">${sz(I.plus, 18)} Dodaj</button></div>`;
+    const t2 = $('.ea-title', f); t2.value = val; if (had) { t2.focus(); t2.setSelectionRange(val.length, val.length); }
+    preview();
+  };
+  const preview = () => {
+    const v = $('.ea-title', f).value.trim(), box = $('.ea-parse', f);
+    if (!v) { box.innerHTML = ''; return; }
+    const r = parseQuick(v, {}), ch = [];
+    if (r.due) ch.push(`📅 ${dateLabelShort(r.due)}`); if (r.time) ch.push(`⏰ ${r.time}${r.endTime ? '–' + r.endTime : ''}`);
+    if (r.assignees.length) ch.push(`👤 ${r.assignees.map(firstName).join(', ')}`); if (r.priority && r.priority < 4) ch.push(`🚩 P${r.priority}`);
+    box.innerHTML = ch.length ? `<span>Z tekstu rozpoznano:</span> ${ch.map(c => `<b>${c}</b>`).join('')}` : '';
+  };
+  draw();
+  setTimeout(() => { if (!isNarrow()) $('.ea-title', f)?.focus(); }, 60);
+  f.addEventListener('input', e => { if (e.target.matches('.ea-title')) preview(); });
+  f.addEventListener('keydown', e => { if (e.target.matches('.ea-title') && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); f.requestSubmit(); } });
+  f.addEventListener('change', e => {
+    if (e.target.matches('[data-d-in]') && e.target.value) { st.due = e.target.value; draw(); }
+    if (e.target.matches('[data-t-in]') && e.target.value) { const d0 = dur() || (st.kind === 'event' ? 60 : 0); st.time = e.target.value; st.endTime = d0 ? addMin(st.time, d0) : null; draw(); }
+    if (e.target.matches('[data-pj]')) { st.projectId = e.target.value; st.sectionId = null; }
+  });
+  f.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || b.type === 'submit') return;
+    const ds = b.dataset;
+    if (ds.k) { st.kind = ds.k; if (st.kind === 'event' && st.time && !st.endTime) st.endTime = addMin(st.time, 60); }
+    else if (ds.u) { st.who = st.who.includes(ds.u) ? st.who.filter(x => x !== ds.u) : [...st.who, ds.u]; }
+    else if ('d' in ds) { st.due = ds.d || null; if (!st.due) { st.time = st.endTime = null; } }
+    else if ('t' in ds) { const d0 = dur() || (st.kind === 'event' ? 60 : 0); st.time = ds.t || null; st.endTime = st.time && d0 ? addMin(st.time, d0) : null; }
+    else if (ds.dur) { st.endTime = addMin(st.time, +ds.dur); }
+    else if ('prio' in ds) { st.prio = st.prio === 1 ? 4 : 1; }
+    else if ('more' in ds) {
+      const title = $('.ea-title', f).value; bsClose(true);
+      ui.fullForm = true; ui.modal = { type: 'quick' };
+      openForm('quick', { projectId: st.projectId, sectionId: st.sectionId, parentId: st.parentId, due: st.due, time: st.time, endTime: st.endTime, kind: st.kind, assignees: st.who, priority: st.prio, labels: st.labels });
+      if (ui.addForm) { ui.addForm.draft.title = title; render(); }
+      return;
+    } else return;
+    draw();
+  });
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    const raw = $('.ea-title', f).value.trim();
+    if (!raw) { const t = $('.ea-title', f); t.classList.remove('shake'); void t.offsetWidth; t.classList.add('shake'); t.focus(); return; }
+    const r = parseQuick(raw, {});
+    const labels = (r.labels || []).map(n => { let l = state.labels.find(x => x.name.toLowerCase() === n.toLowerCase()); if (!l) { l = { id: uid(), name: n, color: '#808080' }; state.labels.push(l); } return l.id; });
+    const due = r.due || st.due, time = r.time || (due ? st.time : null);
+    let endTime = r.endTime || (time === st.time ? st.endTime : null);
+    if (st.kind === 'event' && time && !endTime) endTime = addMin(time, 60);
+    const t = newTask({ title: r.title || raw, kind: st.kind, projectId: r.projectId || st.projectId, sectionId: r.projectId ? r.sectionId || null : st.sectionId, parentId: st.parentId,
+      priority: r.priority && r.priority < 4 ? r.priority : st.prio, due, time, endTime, recurring: r.recurring || null, labels: [...new Set([...st.labels, ...labels])], order: nextOrder(),
+      assignees: r.assignees.length ? r.assignees : st.who });
+    if (r.endDue) t.endDue = r.endDue;
+    state.tasks.push(t); markEnter(t.id);
+    bsClose(); ui.quiet = true; commit();
+    const who = t.assignees.filter(u => u !== me());
+    toast(`✓ Dodano „${t.title}”${t.due ? ' · ' + dateLabelShort(t.due) + (t.time ? ' ' + t.time : '') : ''}${who.length ? ' · ' + who.map(firstName).join(', ') + ' dostanie powiadomienie' : ''}`, null, () => openTask(t.id), 'Otwórz');
+  });
+}
+// każde „dodaj zadanie” otwiera proste okienko (pełny formularz – „Więcej opcji…”)
+const fullOpenForm = openForm;
+openForm = function (ctx, d) {
+  if (ui.fullForm || String(ctx).startsWith('sub:')) { ui.fullForm = false; return fullOpenForm(ctx, d); }
+  ui.modal = null; ui.addForm = null;
+  easyAdd(Object.assign({}, d || ui.ctxDefaults?.[ctx] || {}));
+};
+
+// ---------- MENU ZADANIA POD PALEC ----------
+function taskSheet(id, focus) {
+  const t = task(id); if (!t) return;
+  const ev = t.kind === 'event', p = proj(t.projectId);
+  const el = bsOpen('<div class="ts"></div>', 'ts-sheet'), box = $('.ts', el);
+  const apply = (fn, msg) => { const snap = snapshot(); fn(); ui.quiet = true; commit(); draw(); if (msg) toast(msg, snap); };
+  const draw = () => {
+    const s = stOf(t);
+    box.innerHTML = `<div class="ts-h"><span class="ts-dot" style="--c:${itemColor(t)}"></span><div class="grow"><b>${esc(t.title)}</b><span>${ev ? 'Spotkanie' : ST_LABEL[s]} · ${t.due ? dateLabelShort(t.due) + (t.time ? ' ' + timeRange(t) : '') : 'bez terminu'}${p && !p.isInbox ? ' · ' + esc(p.name) : ''}</span></div></div>
+      ${ev ? '' : `<div class="ea-l">Status</div><div class="ts-st">${ST_LABEL.map((l, i) => `<button class="s${i} ${s === i ? 'on' : ''}" data-st="${i}"><i></i>${l}</button>`).join('')}</div>`}
+      <div class="ea-l">Przenieś na <span>teraz: ${dateLabelShort(t.due)}</span></div><div class="ea-chips">${dateChipsHtml(t.due, 'data-d')}</div>
+      ${team.members.length ? `<div class="ea-l" id="ts-who">${ev ? 'Kto bierze udział?' : 'Kto to robi?'} <span>dotknij, aby dodać lub zabrać</span></div><div class="ea-people">${peopleChipsHtml(t.assignees, 'data-u')}</div>` : ''}
+      <div class="ts-btns"><button class="btn" data-open>${sz(I.edit, 16)} Szczegóły i komentarze</button><button class="btn danger-ghost" data-del>${sz(I.trash, 16)} Usuń</button></div>`;
+  };
+  draw();
+  if (focus === 'who') setTimeout(() => $('#ts-who')?.scrollIntoView({ block: 'center' }), 50);
+  box.addEventListener('change', e => { if (e.target.matches('[data-d-in]') && e.target.value) apply(() => { t.due = e.target.value; if (t.endDue && t.endDue < t.due) t.endDue = null; }, `Przeniesiono na ${dateLabelShort(e.target.value)}`); });
+  box.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return; const ds = b.dataset;
+    if (ds.st) { bsClose(); setStatus(t.id, +ds.st); }
+    else if ('d' in ds) apply(() => { t.due = ds.d || null; if (!t.due) { t.time = t.endTime = null; t.endDue = null; } else if (t.endDue && t.endDue < t.due) t.endDue = null; }, ds.d ? `Przeniesiono na ${dateLabelShort(ds.d)}` : 'Usunięto termin');
+    else if (ds.u) apply(() => { t.assignees = t.assignees.includes(ds.u) ? t.assignees.filter(x => x !== ds.u) : [...t.assignees, ds.u]; }, t.assignees.includes(ds.u) ? `${firstName(ds.u)} – zabrano z zadania` : `Przypisano: ${ds.u === me() ? 'Ty' : firstName(ds.u)}${ds.u !== me() ? ' (dostanie powiadomienie)' : ''}`);
+    else if ('open' in ds) { bsClose(true); openTask(t.id); }
+    else if ('del' in ds) { bsClose(true); deleteTask(t); }
+  });
+}
+// na telefonie „⋯” i kółko z osobą otwierają proste menu zadania
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act="task-more"], [data-act="assign"]');
+  if (!b || !b.dataset.id || b.closest('#popover, #dialog-root, #bsheet, .task-form') || !isTouch()) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  taskSheet(b.dataset.id, b.dataset.act === 'assign' ? 'who' : '');
+}, true);
+
+// ---------- MOJE na telefonie: jedna lista na raz ----------
+const baseRenderMy = renderMy;
+renderMy = function () {
+  if (!isNarrow()) return baseRenderMy();
+  const td = todayStr(), tm = addDays(td, 1), wkEnd = addDays(td, 7), u = me();
+  const mine = state.tasks.filter(t => !t.completed && t.assignees.includes(u));
+  const tasks = mine.filter(t => t.kind !== 'event'), evs = mine.filter(t => t.kind === 'event' && !pastEvent(t));
+  const onDay = (t, d) => t.due === d || (t.endDue && t.due < d && d <= t.endDue);
+  const over = tasks.filter(t => t.due && t.due < td).sort(byDue);
+  const prog = tasks.filter(t => stOf(t) === 1 && !(t.due && t.due < td)).sort(byDue);
+  const todayT = tasks.filter(t => stOf(t) !== 1 && onDay(t, td)).sort(byDue), todayE = evs.filter(t => onDay(t, td)).sort(byDue);
+  const gToday = gcalEventsOn(td, 'gcalToday');
+  const hang = keptDone(t => t.assignees.includes(u) || t.completedBy === u);
+  const doneToday = state.tasks.filter(t => t.completed && t.completedAt && t.kind !== 'event' && fmtDate(new Date(t.completedAt)) === td && (t.completedBy === u || t.assignees.includes(u)));
+  const tomList = mine.filter(t => t.due === tm && stOf(t) !== 1 && !pastEvent(t)).sort(byDue);
+  const week = mine.filter(t => t.due && t.due > tm && t.due <= wkEnd && stOf(t) !== 1 && !pastEvent(t)).sort(byDue);
+  const later = tasks.filter(t => (!t.due || t.due > wkEnd) && stOf(t) !== 1).sort((a, b) => (a.due || '9').localeCompare(b.due || '9') || a.priority - b.priority);
+  const now = nowHM();
+  const timed = [...todayT.filter(t => t.time), ...todayE.filter(t => t.time)].map(t => ({ t, k: t.time })).concat(gToday.filter(e => e.time && !e.allDay).map(e => ({ e, k: e.time }))).sort((a, b) => a.k.localeCompare(b.k));
+  const next = timed.find(x => x.k > now);
+  const focus = prog[0] || over.slice().sort((a, b) => a.priority - b.priority)[0] || todayT.slice().sort((a, b) => a.priority - b.priority || byDue(a, b))[0];
+  const total = doneToday.length + over.length + todayT.length + prog.length;
+  const tabs = [['now', '🔥 Teraz', over.length + prog.length], ['today', 'Dziś', todayT.length + todayE.length + gToday.length], ['tomorrow', 'Jutro', tomList.length], ['week', 'Tydzień', week.length], ['later', 'Później', later.length]];
+  let tab = ui.myTab; if (!tabs.some(x => x[0] === tab)) tab = over.length + prog.length ? 'now' : 'today'; ui.myTab = tab;
+  const h = new Date().getHours(), hi = h < 11 ? 'Dzień dobry' : h < 18 ? 'Cześć' : 'Dobry wieczór';
+  let html = header(`${hi}, ${esc(firstName(u))} 👋`, { barTitle: 'Moje', sub: `${dateLong(td)} · zrobione dziś: <b>${doneToday.length}</b> z ${total}`,
+    right: `<button class="icon-btn" data-act="my-custom" title="Dostosuj ekran" aria-label="Dostosuj ekran">${sz(I.sliders, 20)}</button>` });
+  html += focus ? `<div class="mp-focus st-${stOf(focus)}"><em>${stOf(focus) === 1 ? '🟡 Pracujesz nad' : over.includes(focus) ? '🔴 Najpierw zaległe' : '👉 Teraz zrób'}</em>
+      <b data-act="open" data-id="${focus.id}">${fmtText(focus.title)}</b><span>${focus.due ? dueLabel(focus).label : 'bez terminu'}${proj(focus.projectId) && !proj(focus.projectId).isInbox ? ' · ' + esc(proj(focus.projectId).name) : ''}</span>
+      <div class="mp-fb">${stOf(focus) === 0 ? `<button class="btn big" data-act="my-st" data-id="${focus.id}" data-s="1">▶ Zaczynam</button>` : ''}<button class="btn primary big" data-act="my-st" data-id="${focus.id}" data-s="2">${sz(I.checkSmall, 18)} Zrobione</button></div></div>`
+    : `<div class="mp-focus empty"><em>🎉 Brawo</em><b>Na dziś wszystko zrobione</b><span>Możesz zajrzeć do jutra albo dodać coś nowego.</span></div>`;
+  if (next) html += `<div class="mp-next" ${next.t ? `data-act="open" data-id="${next.t.id}"` : ''}>${sz(I.clock, 18)}<span><b>${next.k}</b> ${esc(next.t ? next.t.title : next.e.title)}</span><em>${inLabel(minsTo(next.k))}</em></div>`;
+  html += `<div class="my-tabs" role="tablist">${tabs.map(([k, l, n]) => `<button role="tab" class="${tab === k ? 'on' : ''} ${k === 'now' && over.length ? 'alert' : ''}" data-act="my-tab" data-k="${k}">${l}${n ? `<span>${n}</span>` : ''}</button>`).join('')}</div>`;
+  const rows = (list, o) => list.map(t => myRow(t, o)).join('');
+  const empty = (ic, txt) => `<div class="mp-empty"><span>${ic}</span>${txt}</div>`;
+  let body = '';
+  if (tab === 'now') body = (over.length ? `<div class="my-sub r">Po terminie – zrób najpierw</div>${rows(over, { date: true })}` : '') + (prog.length ? `<div class="my-sub y">W trakcie</div>${rows(prog, { date: true })}` : '') || empty('✅', 'Nic zaległego i nic rozpoczętego.');
+  else if (tab === 'today') { const untimed = todayT.filter(t => !t.time); body = (timed.length ? `<div class="my-sub">Według godzin</div>${timed.map(x => x.e ? myGcalRow(x.e) : myRow(x.t)).join('')}` : '') + (untimed.length ? `<div class="my-sub">W ciągu dnia</div>${rows(untimed)}` : '') + (hang.length ? `<div class="my-sub g">Zrobione</div>${rows(hang)}` : '') || empty('☀️', 'Na dziś nic nie masz.'); }
+  else if (tab === 'tomorrow') body = rows(tomList) || empty('🌙', 'Na jutro jeszcze nic.');
+  else if (tab === 'week') { let last = ''; week.forEach(t => { if (t.due !== last) { last = t.due; body += `<div class="my-sub">${cap(PL_DAYS[dow(t.due)])} ${parseDate(t.due).getDate()} ${monthGen(t.due)}</div>`; } body += myRow(t); }); body = body || empty('🗓️', 'Spokojny tydzień.'); }
+  else body = rows(later, { date: true }) || empty('📥', 'Pusto.');
+  const addDue = tab === 'tomorrow' ? tm : tab === 'later' ? '' : td;
+  html += `<div class="mp-list">${body}<button class="mp-add" data-act="mp-add" data-due="${addDue}">${sz(I.plus, 20)} Dodaj coś dla siebie${tab === 'tomorrow' ? ' na jutro' : tab === 'later' ? '' : ' na dziś'}</button></div>`;
+  if (doneToday.length) html += `<button class="mp-done" data-act="nav" data-view="archive">✅ Zrobione dziś: <b>${doneToday.length}</b> · zobacz historię ${sz(I.right, 16)}</button>`;
+  return html;
+};
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act="my-tab"], [data-act="mp-add"]'); if (!b) return;
+  if (b.dataset.act === 'my-tab') { ui.myTab = b.dataset.k; ui.quiet = true; renderMain(); }
+  else easyAdd({ due: b.dataset.due || null, assignees: [me()] });
+});
+// wiersz na ekranie Moje: przycisk „⋯” z prostym menu
+const v4MyRow = myRow;
+myRow = function (t, o) {
+  return v4MyRow(t, o).replace(/<\/span><\/div>\s*$/, `</span><button class="icon-btn my-dots" data-act="task-more" data-id="${t.id}" aria-label="Przenieś, przypisz, status">${I.dots}</button></div>`);
+};
+
+// ---------- KALENDARZ na telefonie: tydzień jako lista dni ----------
+function weekListHtml(base) {
+  const td = todayStr(), n = state.settings.calWork ? 5 : 7;
+  return `<div class="wl">${[...Array(n)].map((_, i) => {
+    const d = addDays(base, i), { timed, untimed } = dayData(d), items = [...timed, ...untimed];
+    return `<section class="wl-day ${d === td ? 'today' : ''} ${d < td ? 'past' : ''}" data-drop="day" data-date="${d}">
+      <button class="wl-h" data-act="cal-dayopen" data-date="${d}"><span class="wl-d"><small>${PL_DAYS_SHORT[dow(d)]}</small><b>${parseDate(d).getDate()}</b></span><span class="grow"><b>${relDay(d) || cap(PL_DAYS[dow(d)])}</b><small>${parseDate(d).getDate()} ${monthGen(d)}</small></span>${items.length ? `<em>${items.length}</em>` : ''}${sz(I.right, 18)}</button>
+      ${items.length ? items.map(x => ddRow(x, { d })).join('') : `<div class="wl-free">Wolne – nic zaplanowanego</div>`}
+      <button class="wl-add" data-act="dd-add" data-date="${d}">${sz(I.plus, 16)} Dodaj</button></section>`;
+  }).join('')}</div>`;
+}
+const v4RenderCalendar = renderCalendar;
+renderCalendar = function () {
+  if (isNarrow() && !ui.calMode) ui.calMode = 'day';
+  let html = v4RenderCalendar();
+  if (isNarrow() && ui.calMode === 'week') {
+    const i = html.indexOf('<div class="cal2 grid week">');
+    if (i > 0) html = html.slice(0, i) + weekListHtml(calBase('week'));
+  }
+  return html;
+};
+// dzień na telefonie – domyślnie widok „według godzin” dla moich, „według osób” dla zespołu
+const v4DayBoard = renderDayBoard;
+renderDayBoard = function (d) {
+  if (isNarrow() && !ui.dayMode) ui.dayMode = (state.settings.who || 'me') === 'all' ? 'people' : 'hours';
+  return v4DayBoard(d);
+};
+
+// ---------- przewodnik: nowe proste okienka i układ telefonu ----------
+(() => {
+  const by = sel => TOUR.find(s => s.sel === sel);
+  const add = TOUR.find(s => s.sel === '[data-tour="add"]');
+  if (add) { add.title = 'Dodawanie – jedno proste okienko'; add.text = 'Kliknij <b>Nowe zadanie</b> (na telefonie duży <b>+</b> na dole). Wpisz, co trzeba zrobić, a potem dotknij: <b>kto</b> to zrobi i <b>kiedy</b> (Dziś, Jutro…). Gotowe – przycisk <b>Dodaj</b>. Wybrana osoba od razu dostaje powiadomienie.'; }
+  const h = by('.my-hero'); if (h) { h.msel = '.mp-focus'; h.text = 'Na górze zawsze widzisz <b>jedną rzecz do zrobienia teraz</b> – z dużymi przyciskami <b>Zaczynam</b> i <b>Zrobione</b>. Niżej: co masz następne w kalendarzu.'; }
+  const a = by('.my-add'); if (a) { a.msel = '.my-tabs'; a.title = 'Teraz, dziś, jutro, tydzień'; a.text = 'Przełączaj zakładki, aby zobaczyć <b>tylko swoje</b> zadania na wybrany czas. <b>Teraz</b> to zaległe i rozpoczęte – zrób je najpierw.'; }
+  const g = by('.my-grid'); if (g) { g.msel = '.my-dots, .mp-list'; g.title = 'Przenieś, przekaż, zmień status'; g.text = 'Przy każdym zadaniu jest przycisk <b>⋯</b>. Otwiera proste menu: zmiana <b>statusu</b>, <b>przeniesienie</b> na inny dzień jednym dotknięciem i <b>przypisanie</b> osoby. Na telefonie to samo menu otwiera dotknięcie kółka z osobą.'; }
+  const w = TOUR.find(s => s.sel === '.cal-range'); if (w) { w.msel = '.wl-h'; w.text += ' Na telefonie tydzień jest <b>listą dni</b> – dotknij dnia, aby zobaczyć szczegóły.'; }
+})();
+
+// przełączanie układu telefon ⇄ komputer (obrót ekranu, zmiana szerokości okna)
+let wasNarrow = isNarrow();
+addEventListener('resize', () => { if (isNarrow() !== wasNarrow) { wasNarrow = isNarrow(); ui.quiet = true; render(); } });
 if (location.hostname === 'localhost') window.__lt = { get state() { return state; }, team, ui, render: () => render(), newTask, uid, todayStr, addDays, parseQuick, parseICS };
 render();
 save();
